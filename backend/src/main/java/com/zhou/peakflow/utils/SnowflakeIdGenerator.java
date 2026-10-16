@@ -5,6 +5,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import javax.annotation.PostConstruct;
+
 /**
  * 雪花算法 ID 生成器；小幅时钟回拨等待追赶，超阈值抛异常并降级为时间戳+随机数
  */
@@ -41,6 +43,24 @@ public class SnowflakeIdGenerator {
 
     @Value("${snowflake.datacenter-id:1}")
     private long dataCenterId;
+
+    /**
+     * 启动期自检：越界直接失败，不给「带着错误配置跑起来」的机会。
+     *
+     * 两个实例配了同一个 workerId 时不会报错、只会偶发产生重复 ID，
+     * 那种故障要到数据冲突才暴露，排查成本远高于启动时直接拒绝。
+     */
+    @PostConstruct
+    void validateConfig() {
+        if (workerId < 0 || workerId > MAX_WORKER_ID) {
+            throw new BusinessException("snowflake.worker-id 必须在 0~" + MAX_WORKER_ID + " 之间，当前=" + workerId);
+        }
+        if (dataCenterId < 0 || dataCenterId > MAX_DATACENTER_ID) {
+            throw new BusinessException("snowflake.datacenter-id 必须在 0~" + MAX_DATACENTER_ID + " 之间，当前=" + dataCenterId);
+        }
+        log.info("雪花 ID 生成器就绪：workerId={} datacenterId={}（多实例部署时各实例的 workerId 必须互不相同）",
+                workerId, dataCenterId);
+    }
 
     // synchronized 保证同毫秒序列自增不冲突
     public synchronized long nextId() {

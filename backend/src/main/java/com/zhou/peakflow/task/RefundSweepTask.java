@@ -3,21 +3,20 @@ package com.zhou.peakflow.task;
 import com.zhou.peakflow.constant.OrderConstants;
 import com.zhou.peakflow.service.RefundService;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 /**
  * 退款单兜底扫描任务：把卡在中间态的退款单收敛掉。
+ *
+ * 多实例下每个实例都会各自调度一次，统一经 TaskLock 串成单节点执行。
  */
-@Slf4j
 @Component
 @RequiredArgsConstructor
 public class RefundSweepTask {
 
     private final RefundService refundService;
-
-    private static final String LOG_PREFIX = "【退款兜底扫描】";
+    private final TaskLock taskLock;
 
     /** 收敛间隔：10 分钟（重试下限默认 30 分钟，扫勤一点不影响频次控制） */
     private static final long REFUND_SWEEP_INTERVAL_MS = 10 * 60_000L;
@@ -32,11 +31,7 @@ public class RefundSweepTask {
      */
     @Scheduled(initialDelay = INITIAL_DELAY_MS, fixedDelay = REFUND_SWEEP_INTERVAL_MS)
     public void sweepTimeoutRefunds() {
-        try {
-            refundService.sweepTimeoutRefunds(OrderConstants.SWEEP_BATCH_SIZE);
-        } catch (Exception e) {
-            // 兜住异常：单轮失败不应影响后续调度
-            log.error("{}退款中间态收敛扫描异常", LOG_PREFIX, e);
-        }
+        taskLock.runExclusively("lock:task:refund-sweep:timeout", "退款兜底扫描-中间态收敛",
+                () -> refundService.sweepTimeoutRefunds(OrderConstants.SWEEP_BATCH_SIZE));
     }
 }

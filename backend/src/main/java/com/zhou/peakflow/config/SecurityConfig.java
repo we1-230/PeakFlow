@@ -60,6 +60,9 @@ public class SecurityConfig {
                     // 静态资源（商城前端页面，免登录）
                     .antMatchers("/", "/index.html", "/static/**", "/favicon.ico",
                             "/*.html", "/*.js", "/*.css", "/images/**").permitAll()
+                    // 未配置 OSS 时本地降级的上传目录：图片属于公开资源，
+                    // 前端要能直接 <img src> 加载，不能要求带 token
+                    .antMatchers("/uploads/**").permitAll()
                     .antMatchers("/error").permitAll()
                     .anyRequest().authenticated()
                 .and()

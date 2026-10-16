@@ -179,10 +179,31 @@ security:
     - /*.js
     - /*.css
     - /images/**
+    # 未配置 OSS 时的本地降级上传目录（图片是公开资源，前端要能直接 <img src>）
+    - /uploads/**
 
 cors:
   # 允许的前端来源（逗号分隔）。生产环境必须通过环境变量 CORS_ALLOWED_ORIGINS 收紧到真实域名。
   allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://127.0.0.1:3000}
+
+# ==================== 雪花算法（多实例部署必须区分 worker-id） ====================
+# @Scheduled 之外的第二个「多实例必须对齐」的点：ID 生成器。
+# 两个实例若用同一个 workerId，同一毫秒内会生成完全相同的 ID（秒杀订单号、支付单号都靠它），
+# 因此 compose 里给 backend1/backend2 分别注入 SNOWFLAKE_WORKER_ID=1 / 2。
+snowflake:
+  # 机器 ID（0~31）：同一机房内每个实例必须唯一
+  worker-id: ${SNOWFLAKE_WORKER_ID:1}
+  # 数据中心 ID（0~31）：跨机房才需区分，单机房所有实例填同一个即可
+  datacenter-id: ${SNOWFLAKE_DATACENTER_ID:1}
+
+# ==================== 文件上传 ====================
+# 配了 OSS 凭证走阿里云 OSS；没配则降级写本地目录（见 AliOssUtil）
+app:
+  upload:
+    # 降级存储目录（相对启动目录，容器内是 /app/uploads）
+    local-dir: ${APP_UPLOAD_LOCAL_DIR:./uploads}
+    # 降级时拼给前端的 URL 前缀，必须是浏览器能访问到的本服务地址
+    public-base-url: ${APP_UPLOAD_PUBLIC_BASE_URL:http://127.0.0.1:8080}
 
 # 线程池配置（可动态调整，无需改代码）
 threadpool:
