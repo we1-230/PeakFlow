@@ -1,0 +1,247 @@
+# ============================================================================
+# PeakFlow 秒杀商城 · 整栈 docker-compose
+# ----------------------------------------------------------------------------
+# 启动全部：        docker compose up -d
+# 只起中间件：      docker compose up -d mysql redis namesrv broker
+# 看状态：          docker compose ps
+# 看某个服务日志：  docker compose logs -f broker
+# 清空重建（注意会删数据卷）：docker compose down -v
+#
+# 配置来源：同目录的 .env（由 .env.example 复制而来，不进版本库）。
+#   Compose 会自动读取 .env 做变量插值，因此这里所有 ${VAR} 都由它提供。
+#
+# 端口约定（为什么 MySQL 是 3307 而不是 3306）：
+#   本机 3306 已被 Windows 服务 MySQL80 占用，且那个实例里存着其他项目的库。
+#   为了不干扰它们，PeakFlow 的中间件统一走独立端口，DB_PORT 默认 3307。
+#   Redis 6380 / RocketMQ 9876+10911 都是空闲端口，沿用各自默认值。
+# ============================================================================
+
+name: peakflow
+
+networks:
+  peakflow-net:
+    driver: bridge
+
+volumes:
+  mysql-data:
+  redis-data:
+  # 注意：这里【没有】给 RocketMQ 建卷，是有意为之 ——
+  # apache/rocketmq 镜像以非 root 的 rocketmq(uid 3000) 运行，而新建的 named volume
+  # 属主是 root:root 755，broker 写不进去会直接启动失败（退出码 253，且日志都写不出来）。
+  # 不挂卷时 store/logs 落在容器可写层：docker compose restart 不丢，
+  # 只有 docker compose down（删容器）才丢 —— 对本地开发足够。
+  # 若生产要持久化，请为 ~/.m2 同理地预置属主：先 chown 3000:3000 再挂载。
+
+# ============================================================================
+# 两个后端实例共用的环境变量（YAML 锚点，避免整段复制两遍）
+#   容器内主机名是 compose 服务名（mysql / redis / namesrv），
+#   与 .env 里给「本机跑后端」用的 127.0.0.1 必须区分开，因此在这里显式覆盖。
+#   唯一要各写一遍的是 SNOWFLAKE_WORKER_ID —— 它决定雪花 ID 的机器位。
+# ============================================================================
+x-backend-env: &backend-env
+  DB_HOST: mysql
+  DB_PORT: "3306"
+  REDIS_HOST: redis
+  REDIS_PORT: "6379"
+  ROCKETMQ_NAMESRV_ADDR: namesrv:9876
+  # 容器内自己调自己的回调地址（两个实例容器内监听的都是 8080）
+  MOCK_PAY_CASHIER_URL: http://127.0.0.1:8080/mock-pay/cashier
+  MOCK_PAY_NOTIFY_URL: http://127.0.0.1:8080/pay/notify
+  MOCK_PAY_REFUND_URL: http://127.0.0.1:8080/mock-pay/refund
+  MOCK_PAY_REFUND_NOTIFY_URL: http://127.0.0.1:8080/refund/notify
+
+services:
+
+  # ==========================================================================
+  # MySQL：一个容器承载三套环境，用库名隔离
+  #   peakflow_dev / peakflow_test / peakflow_prod（见 deploy/mysql/init/00-create-databases.sql）
+  # ==========================================================================
+  mysql:
+    image: mysql:8.0
+    container_name: peakflow-mysql
+    restart: unless-stopped
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+      - --lower_case_table_names=1
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:?请在 .env 中设置 DB_PASSWORD}
+      # ⚠️ 固定为 dev 库：01~04 号初始化脚本没有 USE 语句，会被灌进这里。
+      #    不要改成 ${DB_NAME} —— DB_NAME 是给 Spring 用的，切 profile 时
+      #    会导致初始化数据落错库（test/prod 由 05-provision-envs.sh 显式灌入）。
+      MYSQL_DATABASE: peakflow_dev
+      TZ: Asia/Shanghai
+    ports:
+      # 宿主 ${DB_PORT} → 容器 3306；Spring 的 DB_PORT 复用同一个变量，单一事实来源
+      - "${DB_PORT:-3307}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      # 挂整个 init 目录：镜像按文件名字典序执行
+      # 00 建三库 → 01~04 灌 dev → 05-*.sh 把 01~03 灌进 test/prod
+      - ./deploy/mysql/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p${DB_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+    networks: [peakflow-net]
+
+  # ==========================================================================
+  # Redis：单实例 + 三个逻辑库（db0=dev / db1=test / db2=prod）
+  # ==========================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: peakflow-redis
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"           # AOF 持久化：容器重启后秒杀库存/购买权门闩不丢
+      - --save
+      - "60 1"          # 兜底 RDB 快照
+      - --maxmemory-policy
+      - noeviction      # ⚠️ 不能用 allkeys-lru：库存 Key 被淘汰会导致超卖
+    environment:
+      TZ: Asia/Shanghai
+    ports:
+      - "${REDIS_PORT:-6380}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    networks: [peakflow-net]
+
+  # ==========================================================================
+  # RocketMQ NameServer：路由注册中心
+  # ==========================================================================
+  namesrv:
+    image: apache/rocketmq:4.9.7
+    container_name: peakflow-rmq-namesrv
+    restart: unless-stopped
+    # 默认 JVM 参数按 8G 堆申请，本机跑不动，必须压小
+    environment:
+      TZ: Asia/Shanghai
+      JAVA_OPT_EXT: "-Xms256m -Xmx256m -Xmn128m"
+    ports:
+      - "${ROCKETMQ_NAMESRV_PORT:-9876}:9876"
+    command: sh mqnamesrv
+    healthcheck:
+      test: ["CMD-SHELL", "sh -c 'echo > /dev/tcp/127.0.0.1/9876' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    networks: [peakflow-net]
+
+  # ==========================================================================
+  # RocketMQ Broker：消息存储与投递
+  #   broker.conf 里 brokerIP1=127.0.0.1，让宿主机上的应用能连回 broker，
+  #   原因见 deploy/rocketmq/broker.conf 的注释
+  # ==========================================================================
+  broker:
+    image: apache/rocketmq:4.9.7
+    container_name: peakflow-rmq-broker
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Shanghai
+      JAVA_OPT_EXT: "-Xms512m -Xmx512m -Xmn256m"
+    ports:
+      - "${ROCKETMQ_BROKER_PORT:-10911}:10911"   # 主端口：客户端收发消息
+      - "10909:10909"                            # VIP 通道（未启用，留给后续）
+      - "10912:10912"                            # HA 主从同步（单机不用）
+    volumes:
+      # 只挂配置：broker.conf 是只读文件，任何用户都能读，不受上面说的属主问题影响
+      - ./deploy/rocketmq/broker.conf:/home/rocketmq/conf/broker.conf:ro
+    command: sh mqbroker -c /home/rocketmq/conf/broker.conf
+    depends_on:
+      namesrv:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "sh -c 'echo > /dev/tcp/127.0.0.1/10911' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+    networks: [peakflow-net]
+
+  # ==========================================================================
+  # 后端实例 1：同一镜像，靠 SNOWFLAKE_WORKER_ID=1 与实例 2 区分
+  #   对外映射 ${BACKEND1_PORT:-8080}，方便单独 curl 验证某个实例
+  # ==========================================================================
+  backend1:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: peakflow-backend:latest
+    container_name: peakflow-backend1
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      <<: *backend-env
+      # ★ 多实例的关键：雪花 ID 机器位必须唯一，否则同毫秒会生成重复 ID
+      SNOWFLAKE_WORKER_ID: "1"
+    ports:
+      - "${BACKEND1_PORT:-8080}:8080"
+    volumes:
+      # 两个实例不能共写同一日志目录，否则日志文件互相覆盖
+      - ./backend/logs/backend1:/app/logs
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      broker:
+        condition: service_healthy
+    networks: [peakflow-net]
+
+  # ==========================================================================
+  # 后端实例 2：与实例 1 完全同构，只有 worker-id 与宿主机端口不同
+  # ==========================================================================
+  backend2:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: peakflow-backend:latest
+    container_name: peakflow-backend2
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      <<: *backend-env
+      SNOWFLAKE_WORKER_ID: "2"
+    ports:
+      - "${BACKEND2_PORT:-8081}:8080"
+    volumes:
+      - ./backend/logs/backend2:/app/logs
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      broker:
+        condition: service_healthy
+    networks: [peakflow-net]
+
+  # ==========================================================================
+  # 前端：nginx 托管 Vite 产物，/api 按 least_conn 负载均衡到 backend1/backend2
+  # ==========================================================================
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: peakflow-frontend:latest
+    container_name: peakflow-frontend
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Shanghai
+    ports:
+      - "${FRONTEND_PORT:-3001}:80"
+    depends_on:
+      # 只保证启动顺序：nginx 启动时要能解析 backend1/backend2 这两个服务名，
+      # 容器一旦创建 DNS 别名就存在，无需等它们健康
+      - backend1
+      - backend2
+    networks: [peakflow-net]

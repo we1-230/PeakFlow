@@ -1,52 +1,86 @@
 # 数据库初始化说明
 
-本目录把数据库初始化拆成 **结构 / 权限字典 / 商品目录 / 演示账号 / 生产授权** 五层，
-让「开源给面试官看」和「真正上线」两个场景共用同一套文件，但按需取用。
+本目录把数据库初始化拆成 **建库 / 结构 / 权限字典 / 商品目录 / 演示账号 / 环境分发 / 生产授权**
+七层，让「开源给面试官看」和「真正上线」两个场景共用同一套文件，但按需取用。
 
-## 目录结构
+## 一、一个容器，三套环境
+
+PeakFlow 用**一个 MySQL 实例**承载三套环境，靠**库名**隔离，避免本机起三个 MySQL 容器：
+
+| 库名 | 用途 | 灌入的内容 | 谁在连 |
+|---|---|---|---|
+| `peakflow_dev` | 本地开发 | 结构 + 权限字典 + 商品目录 + 演示账号 | `SPRING_PROFILES_ACTIVE=dev` |
+| `peakflow_test` | 自动化测试 | 结构 + 权限字典 + 商品目录（**不含演示密码**） | `SPRING_PROFILES_ACTIVE=test` |
+| `peakflow_prod` | 生产 | 结构 + 权限字典 + 商品目录（账号另行授权） | `SPRING_PROFILES_ACTIVE=prod` |
+
+> `peakflow_test` 必须带**权限字典**（`02`）：注册接口会给新用户分配 `role_id=1`，
+> 而 `user_role` 有外键指向 `role(id)`。三张权限表为空时注册会外键失败、
+> 整个事务回滚，集成测试全挂（历史踩坑，见 `backend/src/test/README.md`）。
+
+## 二、目录结构
 
 ```
 deploy/mysql/
-├── init/                          # 容器首次初始化时自动执行
-│   ├── 01-schema.sql              # 19 张表结构        ← 两场景共用
-│   ├── 02-base-data.sql           # 权限/角色字典      ← 两场景共用
-│   ├── 03-product-data.sql        # 分类 + 商品目录    ← 两场景共用
-│   └── 04-demo-account.sql        # 演示账号           ← 仅演示
+├── init/                          # 容器首次初始化时自动执行（按文件名字典序）
+│   ├── 00-create-databases.sql    # 建 peakflow_dev / _test / _prod 三个库
+│   ├── 01-schema.sql              # 17 张表结构                 ← 三套环境共用
+│   ├── 02-base-data.sql           # 权限/角色字典               ← 三套环境共用
+│   ├── 03-product-data.sql        # 分类 + 商品目录             ← 三套环境共用
+│   ├── 04-demo-account.sql        # 演示账号（仅灌入 dev）      ← 仅演示
+│   └── 05-provision-envs.sh       # 把 01~03 再灌进 test / prod
 ├── prod/
-│   └── grant-role.sql             # 生产账号授权（4 个角色通用）← 仅生产，手工执行
+│   └── grant-admin-role.sql       # 生产账号授权（4 个角色通用）← 仅生产，手工执行
 └── README.md
 ```
 
-| 文件 | 内容 | 行数 | 演示 | 生产 |
-|---|---|---:|:---:|:---:|
-| `01-schema.sql` | 19 张表 `CREATE TABLE`，无数据 | 462 | ✅ | ✅ |
-| `02-base-data.sql` | `permission`(11) / `role`(4) / `role_permission`(21) | 81 | ✅ | ✅ |
-| `03-product-data.sql` | `category`(10) / `product`(100，含 60 秒杀) | 183 | ✅ | ✅ |
-| `04-demo-account.sql` | `user`(5) / `user_role`(6) | 11 条 | ✅ | ❌ |
-| `prod/grant-role.sql` | 把账号设置成指定角色（`admin` / `product_ops` / `order_service` / `user`） | — | ❌ | ✅ |
+| 文件 | 内容 | 行数 | dev | test | prod |
+|---|---|---:|:---:|:---:|:---:|
+| `00-create-databases.sql` | `CREATE DATABASE` × 3（utf8mb4 / utf8mb4_0900_ai_ci） | 30 | ✅ | ✅ | ✅ |
+| `01-schema.sql` | 17 张表 `CREATE TABLE`，无数据 | 419 | ✅ | ✅ | ✅ |
+| `02-base-data.sql` | `permission`(11) / `role`(4) / `role_permission`(21) | 81 | ✅ | ✅ | ✅ |
+| `03-product-data.sql` | `category`(10) / `product`(100，含 60 秒杀) | 163 | ✅ | ✅ | ✅ |
+| `04-demo-account.sql` | `user`(5) / `user_role`(6) | 63 | ✅ | ❌ | ❌ |
+| `05-provision-envs.sh` | 驱动脚本：把 `01~03` 灌进 test / prod，并打印各库行数自检 | 70 | — | — | — |
+| `prod/grant-admin-role.sql` | 把账号设置成指定角色（`admin` / `product_ops` / `order_service` / `user`） | 116 | ❌ | ❌ | ✅ |
+
+> `grant-admin-role.sql` 文件名沿用了部署规范，但**并不只能授 admin** ——
+> 改参数区的 `@role_code` 即可授任意一个角色。
 
 **为什么这样切分**
 
 - `01` + `02` 是「没有它系统就跑不起来」的部分——缺了权限字典，`@PreAuthorize` 全部失效。
 - `03` 是**商品目录**：生产环境同样需要一份初始商品，所以和 `01`/`02` 一样共用。
   商品的图片、文案、价格都是真实的演示数据（Unsplash 商用实拍图），生产可直接沿用再逐步替换。
-- `04` 是**唯一含密码的文件**，所以单独拆出来，生产不挂载即可。
+- `04` 是**唯一含密码的文件**，所以单独拆出来，生产不加载即可。
 
-> 依赖顺序：`01` → `02` → `03` → `04`。文件名的数字前缀就是 Docker 初始化脚本的执行顺序
-> （镜像按文件名字典序执行）。
-> 其中 `03` 内部 `category` 必须先于 `product` 插入（`product.category_id` 引用 `category.id`）；
-> `04` 内部 `user` 必须先于 `user_role`（且 `user_role.role_id` 依赖 `02` 里的 `role`）。
+为什么 `00` 与 `05` 单独拆出来：
+
+- `01~04` 是 `mysqldump` 产物，**内部没有 `USE` 语句**，只能写入「当前默认库」。
+  容器启动时 `MYSQL_DATABASE=peakflow_dev`，所以它们自然落在 dev 库；
+  test / prod 需要在 `05-provision-envs.sh` 里显式指定目标库再灌一遍。
+- 如果改成在每个 sql 顶部手写 `USE peakflow_dev;` ——
+  同一份 dump 就无法复用于另外两套环境，失去了「三套环境共用一份结构」的意义。
+
+> 依赖顺序：`00` → `01` → `02` → `03` → `04` → `05`。文件名的数字前缀就是 Docker 初始化脚本的执行顺序
+> （镜像按文件名字典序执行）。其中 `03` 内部 `category` 必须先于 `product` 插入
+> （`product.category_id` 引用 `category.id`）；`04` 内部 `user` 必须先于 `user_role`
+> （且 `user_role.role_id` 依赖 `02` 里的 `role`）。
+>
+> `01-schema.sql` 每张表前都有 `DROP TABLE IF EXISTS`，因此 `05` 重复执行是安全的（幂等）。
 
 ---
 
-## 一、加载哪些文件：两个场景对比
+## 三、加载哪些文件：三个场景对比
 
-| | 演示 / 面试官 | 生产上线 |
-|---|---|---|
-| 加载文件 | `01` + `02` + `03` + `04` | `01` + `02` + `03` |
-| 商品 | 100 条（含 60 个秒杀） | 100 条（秒杀是否保留由你决定，见下） |
-| 账号 | 5 个演示账号（密码公开） | **无**，自行注册 |
-| 管理员来源 | `04-demo-account.sql` 内置 | 注册接口 + `grant-role.sql` |
+| | `peakflow_dev`（演示/面试官） | `peakflow_test`（自动化测试） | `peakflow_prod`（生产上线） |
+|---|---|---|---|
+| 加载文件 | `00` + `01` + `02` + `03` + `04` | `00` + `01` + `02` + `03` | `00` + `01` + `02` + `03` |
+| 商品 | 100 条（含 60 个秒杀） | 100 条（同上） | 100 条（秒杀是否保留由你决定，见下） |
+| 账号 | 5 个演示账号（密码公开） | **无**，集成测试自建后清理 | **无**，自行注册 |
+| 管理员来源 | `04-demo-account.sql` 内置 | 测试里 `grantAdmin()` 直接写 `user_role` | 注册接口 + `grant-admin-role.sql` |
+
+> 三套环境的差异只有一处：**只有 dev 灌演示账号**（`04`），
+> 因为它含公开密码，进了 test / prod 就是纯粹的安全负债。
 
 ### 生产环境要不要保留秒杀标记？
 
@@ -65,7 +99,7 @@ UPDATE product SET is_seckill = 0, seckill_price = NULL, seckill_stock = 0,
 
 ---
 
-## 二、管理用户：两个场景怎么分配
+## 四、管理用户：三个场景怎么分配
 
 核心思路是**把「账号数据」和「授权动作」彻底分开**——这样仓库里永远不会有生产密码，
 演示又能开箱即用。
@@ -124,7 +158,7 @@ docker exec -i <mysql容器名> mysql -uroot -p<密码> <库名> < deploy/mysql/
 
 ---
 
-## 三、容器怎么加载这些文件
+## 五、容器怎么加载这些文件
 
 Docker 官方 MySQL 镜像会在**数据卷首次初始化时**自动执行
 `/docker-entrypoint-initdb.d/` 下的 `*.sql`（按文件名字典序）。
@@ -169,7 +203,7 @@ docker compose down -v && docker compose up -d
 
 ---
 
-## 四、秒杀时间窗口为什么是相对时间
+## 六、秒杀时间窗口为什么是相对时间
 
 `03-product-data.sql` 里 60 个秒杀商品的 `seckill_start_time` / `seckill_end_time`
 写的是 **`DATE_SUB(NOW(), INTERVAL 1 HOUR)`** 和 **`DATE_ADD(NOW(), INTERVAL 365 DAY)`**，
@@ -185,7 +219,7 @@ docker compose down -v && docker compose up -d
 
 ---
 
-## 五、重新生成种子文件（结构或数据变了时）
+## 七、重新生成种子文件（结构或数据变了时）
 
 ```bash
 DUMP="/c/Program Files/MySQL/MySQL Server 8.0/bin/mysqldump.exe"   # Windows 下 MySQL 客户端路径
@@ -233,7 +267,7 @@ FROM product WHERE is_seckill = 1;
 
 ---
 
-## 六、已知注意事项
+## 八、已知注意事项
 
 - **`backend/postman/seed_base_data.py` 里有硬编码的本地库密码 `1234`**。
   那是本地开发脚本，开源前建议改成读环境变量（`os.environ.get('DB_PASSWORD')`）。
