@@ -137,7 +137,7 @@ flowchart TB
     end
 
     subgraph MW["中间件（Docker）"]
-        MY["MySQL 8.0 :3306<br/>19 张表"]
+        MY["MySQL 8.0 :3307<br/>dev/test/prod 三库"]
         RD["Redis :6380<br/>库存/缓存/黑名单"]
         MQ["RocketMQ :9876<br/>秒杀/超时"}
     end
@@ -173,8 +173,11 @@ flowchart TB
 
 ```
 PeakFlow/
+├── docker-compose.yml              # 中间件 + 后端双实例 + 前端 Nginx，一条命令起全套
 ├── .env.example                    # 环境变量模板（本文件说明见第七节）
+├── docs/API.md                     # 接口文档（71 个端点总览）
 ├── backend/                        # Spring Boot 后端
+│   ├── Dockerfile / .dockerignore  # 多阶段构建（maven 打包 → temurin JRE 运行）
 │   ├── pom.xml
 │   ├── mvnw / mvnw.cmd             # Maven Wrapper
 │   ├── postman/                    # 接口测试套件（123 请求 / 768 断言）+ 权威测试规范
@@ -204,11 +207,16 @@ PeakFlow/
 │       │   └── static/             # MockPay 收银台页面
 │       └── test/                   # 单元测试
 ├── deploy/
-│   └── mysql/
-│       ├── init/                   # 01 表结构 / 02 权限字典 / 03 商品目录 / 04 演示账号
-│       ├── prod/grant-role.sql     # 生产账号授权（按用户名赋角色）
-│       └── README.md               # 数据库初始化权威说明
+│   ├── mysql/
+│   │   ├── init/                   # 00 建三库 / 01 表结构 / 02 基础数据 / 03 商品目录 / 04 演示账号 / 05 灌 test+prod
+│   │   ├── prod/grant-admin-role.sql # 生产账号授权（按用户名赋角色，4 个角色通用）
+│   │   └── README.md               # 数据库初始化权威说明
+│   ├── nginx/default.conf          # 宿主机 Nginx 方案（upstream 指向 127.0.0.1:8080/8081）
+│   ├── rocketmq/broker.conf        # brokerIP1=127.0.0.1（不配会注册容器内网 IP）
+│   └── scripts/pull-images.sh      # 国内网络拉镜像（镜像站 → retag 成规范名）
 └── frontend/                       # Vue 3 前端
+    ├── Dockerfile / .dockerignore  # 多阶段构建（node 打包 → nginx:alpine 托管）
+    ├── nginx/default.conf          # 容器内反代 + 负载均衡（upstream backend1/backend2）
     ├── vite.config.js              # dev 端口 3000、/api 代理
     ├── package.json
     ├── src/
@@ -231,29 +239,51 @@ PeakFlow/
 |---|---|---|
 | JDK | 17 | — |
 | Node.js | ≥ 18 | — |
-| MySQL | 8.0 | 3306 |
+| MySQL | 8.0 | **3307**（见下方说明） |
 | Redis | 7（或 6+） | 6380 |
 | RocketMQ | 4.9.7（NameServer + Broker） | 9876 / 10911 |
 
-> 中间件推荐用 Docker 起，一键备好 Redis 与 RocketMQ：
-> ```bash
-> docker run -d --name peakflow-redis -p 6380:6379 redis:7-alpine
-> ```
-> RocketMQ 需要 NameServer 与 Broker 两个容器（Broker 需配置 `brokerIP1` 为宿主机 IP，并开放 10909/10911 端口）。
-> 注意：Redis 用 **6380** 而不是默认 6379，避免与本机已有 Redis 冲突。
-
-### 6.2 初始化数据库
+中间件与前后端已全部编排进 `docker-compose.yml`：
 
 ```bash
-mysql -uroot -p -e "CREATE DATABASE peakflow DEFAULT CHARACTER SET utf8mb4"
+# 只起中间件
+docker compose up -d mysql redis namesrv broker
 
-# 按文件名顺序加载：结构 → 权限字典 → 商品目录 → 演示账号
-mysql -uroot -p peakflow < deploy/mysql/init/01-schema.sql
-mysql -uroot -p peakflow < deploy/mysql/init/02-base-data.sql
-mysql -uroot -p peakflow < deploy/mysql/init/03-product-data.sql
-mysql -uroot -p peakflow < deploy/mysql/init/04-demo-account.sql   # 仅开发/演示环境
+# 起整套（中间件 + 后端双实例 backend1/backend2 + 前端 nginx）
+docker compose up -d
+
+# 看状态：全部应为 healthy
+docker compose ps
 ```
 
+> **为什么 MySQL 是 3307 而不是 3306**：本机 3306 常被「Windows 服务 MySQL80」占用，
+> 且那个实例里往往存着别的项目的库。PeakFlow 的容器映射到 **3307** 避免互相干扰。
+> Redis 用 **6380** 而非默认 6379 也是同样的理由。
+>
+> **RocketMQ 的 `brokerIP1` 是关键项**：`deploy/rocketmq/broker.conf` 里配成 `127.0.0.1`，
+> 不配的话 broker 会把容器内网 IP（如 172.x）注册到 NameServer，
+> 宿主机上的应用拿到后连不上，表现为「秒杀能跑但没走 MQ、实际走了降级同步落库」。
+>
+> 国内网络拉镜像：`./deploy/scripts/pull-images.sh`（先从镜像站拉再 retag 成规范名）。
+
+### 6.2 初始化数据库（容器化后自动完成）
+
+用 compose 起 MySQL 时，`deploy/mysql/init/` 下的脚本会按**文件名字典序自动执行**：
+
+| 文件 | 作用 |
+|---|---|
+| `00-create-databases.sql` | 建 `peakflow_dev` / `peakflow_test` / `peakflow_prod` 三个库 |
+| `01-schema.sql` ~ `04-demo-account.sql` | 灌进 `MYSQL_DATABASE`（固定为 `peakflow_dev`） |
+| `05-provision-envs.sh` | 再把 `01~03` 灌进 test / prod |
+
+```bash
+docker compose up -d mysql
+# 应看到 peakflow_dev / peakflow_test / peakflow_prod 三个库
+docker exec peakflow-mysql mysql -uroot -p1234 -e "SHOW DATABASES;"
+```
+
+> 手工灌库（不走容器）也可以，但 `01~04` 脚本里**没有 `USE` 语句**，
+> 必须在命令行显式指定目标库，否则会灌进当前默认库。
 > `04-demo-account.sql` 含**密码公开**的演示账号，**生产环境严禁加载**。
 > 详细说明（生产环境的账号创建与授权方式、秒杀时间窗口为何用相对时间）见 [`deploy/mysql/README.md`](deploy/mysql/README.md)。
 
@@ -266,8 +296,8 @@ cp .env.example .env
 
 > ⚠️ 项目**未引入 spring-dotenv**，Spring Boot 不会自动读取 `.env` 文件。
 > 需按下面三种方式之一把变量注入**进程环境**：IDE 的 Run Configuration、终端 `set -a; source .env; set +a`、
-> 或 Docker Compose 的 `env_file`。另外仓库当前**尚无 `.gitignore`**（见第十二节），
-> 创建后请务必把 `.env`、`logs/`、`target/`、`node_modules/` 加入忽略。
+> 或 Docker Compose 的 `env_file`。`.gitignore` 已就位：`.env`、`logs/`、`target/`、
+> `node_modules/`、`uploads/`（未配 OSS 时的本地降级上传目录）都已加入忽略。
 
 ### 6.4 启动后端
 
@@ -280,29 +310,50 @@ java -jar target/PeakFlow-1.0-SNAPSHOT.jar --spring.profiles.active=dev
 
 # 方式二：直接跑（IDE 里运行 Application.java，VM options 加 -Dspring.profiles.active=dev）
 ./mvnw spring-boot:run -Dspring-boot.run.profiles=dev
+
+# 方式三：容器（多实例，推荐）
+cd ..
+docker compose up -d backend1 backend2
 ```
+
+> ⚠️ 本机直跑时若端口不是 8080，先看环境里有没有 `SERVER_PORT`（部分沙箱/IDE 会注入 `SERVER__PORT`，
+> 会被 Spring 宽松绑定成 `server.port`）。命令行参数优先级最高，可用
+> `java -jar ... --server.port=8080` 强制覆盖。
 
 启动成功后：
 
 | 地址 | 说明 |
 |---|---|
-| http://localhost:8080/actuator/health | 健康检查 |
+| http://localhost:8080/actuator/health | 健康检查（backend1） |
+| http://localhost:8081/actuator/health | 健康检查（backend2） |
 | http://localhost:8080/swagger-ui/index.html | Swagger UI（prod 已关闭） |
 | http://localhost:8080/v3/api-docs | OpenAPI JSON |
 | http://localhost:8080/actuator/prometheus | Prometheus 指标 |
+
+> **多实例关键点**：两个容器跑的是**同一个镜像** `peakflow-backend:latest`，只靠环境变量
+> `SNOWFLAKE_WORKER_ID`（1 与 2）区分雪花 ID 的机器位；定时任务用 Redisson 分布式锁（`lock:task:*`）
+> 保证同一轮只有一个实例真正执行，另一个实例会打日志 `【任务名】本轮已由其他实例执行，跳过`。
 
 ### 6.5 启动前端
 
 ```bash
 cd frontend
-npm install
+npm ci               # 严格按 package-lock.json 安装，比 npm install 更可复现
 npm run dev          # http://localhost:3000
+
+# 容器方式（Nginx 托管 + 反代后端，推荐）
+cd ..
+docker compose up -d frontend
 ```
 
-| 入口 | 地址 |
-|---|---|
-| 商城端 | http://localhost:3000/ |
-| 管理后台 | http://localhost:3000/admin/login |
+> 容器方式下前端由 Nginx 托管在 **3001**，且 Nginx 已把 `/api/` 反代到 `upstream peakflow_backend`
+> （`backend1:8080` + `backend2:8080`，`least_conn` 策略），因此容器模式下前端与后端同源，
+> 不存在跨域问题，也不需要单独配 Vite 代理。
+
+| 入口 | 本机 dev（3000） | 容器（3001） |
+|---|---|---|
+| 商城端 | http://localhost:3000/ | http://localhost:3001/ |
+| 管理后台 | http://localhost:3000/admin/login | http://localhost:3001/admin/login |
 
 ---
 
@@ -313,7 +364,7 @@ npm run dev          # http://localhost:3000
 
 | 维度 | dev | test | prod |
 |---|---|---|---|
-| MySQL 库 | `peakflow` | `peakflow_test` | `peakflow_prod` |
+| MySQL 库 | `peakflow_dev` | `peakflow_test` | `peakflow_prod` |
 | Redis 逻辑库 | db0 | db1 | db2 |
 | 日志目录 | `./logs/dev` | `./logs/test` | `./logs/prod` |
 | 业务包日志级别 | DEBUG | INFO | INFO |
@@ -354,7 +405,7 @@ user ──< user_role >── role ──< role_permission >── permission
   `order:read`、`order:ship`、`refund:read`、`refund:audit`、`refund:close`、`file:upload`
 - **21 条角色-权限关联**
 
-生产环境创建管理员的方式（**密码全程不落仓库**）：注册接口 → `deploy/mysql/prod/grant-role.sql` 授权。
+生产环境创建管理员的方式（**密码全程不落仓库**）：注册接口 → `deploy/mysql/prod/grant-admin-role.sql` 授权。
 详见 [`deploy/mysql/README.md`](deploy/mysql/README.md)。
 
 ---
@@ -363,8 +414,8 @@ user ──< user_role >── role ──< role_permission >── permission
 
 ### 9.1 后端接口测试（Postman / Newman）
 
-`backend/postman/` 是**接口测试的唯一权威规范**：13 个文件夹 / 123 个请求 / 768 断言
-（其中 4 条上传用例需配置阿里云 OSS 凭证，未配置时返回业务码 `3005`）。
+`backend/postman/` 是**接口测试的唯一权威规范**：13 个文件夹 / 123 个请求 / 768 断言（当前 **0 失败**）。
+上传类用例不要求 OSS 凭证——未配置时会自动降级写到本地 `./uploads` 并返回 `/uploads/xxx` 直链。
 
 ```bash
 cd backend/postman
@@ -382,11 +433,15 @@ python verify_db_redis.py        # 落库验证：DB 与 Redis 的真实副作�
 
 ```bash
 cd frontend
-npm test                  # 单元测试
-npm run test:integration  # 集成测试（MSW 拦截 HTTP）
-npm run test:regression   # 回归测试
+npm test                  # 单元测试（MSW 拦截 HTTP，无需后端）
+npm run test:integration  # 集成测试（真联调：需要后端在跑）
+npm run test:regression   # 回归测试（真联调，跑 test/regression）
 npm run test:ui           # 可视化界面
 ```
+
+> ⚠️ `test:integration` 与 `test:regression` 用的是 `vitest.integration.config.js`，**不装 MSW**，
+> 属真联调测试：必须先按 6.1/6.4 把中间件与后端跑起来，否则会大面积 `ECONNREFUSED 127.0.0.1:8080`。
+> 只有 `npm test`（`vitest.config.js`）用 MSW 拦截 HTTP，可脱离后端独立运行。
 
 ---
 
@@ -473,10 +528,13 @@ npm run test:ui           # 可视化界面
 |---|---|
 | 演示密码明文散落 | `04-demo-account.sql`、`deploy/mysql/README.md`、`postman/README.md` 等多处含演示账号明文密码（仅演示用，生产不加载该 SQL） |
 | `seed_base_data.py` 硬编码密码 | 本地开发脚本内含本地库密码常量，建议改为读环境变量 |
-| 中间件容器名 | Docker 容器仍为 `plekflow-redis` / `plekflow-rmq-*`（历史名称，不影响功能） |
+| 多实例下的本地降级上传 | 未配 OSS 时上传写各实例本地盘，A 写的文件 B 读不到。生产多实例必须改 OSS 或共享卷 |
+| 雪花 ID 生成器暂无调用点 | 业务主键走 `id-type: auto` 自增，`SnowflakeIdGenerator` 已具备多实例分片能力但当前无人调用 |
 
-> 项目**尚未**包含：`Dockerfile`、`docker-compose.yml`、`nginx.conf`。
-> 部署阶段的文件不在本仓库当前范围内。（`.gitignore` 与 `.gitattributes` 已就位。）
+> 项目**已包含**：`docker-compose.yml`、`backend/Dockerfile`、`frontend/Dockerfile`、
+> `frontend/nginx/default.conf`、`deploy/nginx/default.conf`（宿主机 Nginx 方案）、
+> `deploy/rocketmq/broker.conf`、`deploy/scripts/pull-images.sh`。
+> `.gitignore` 与 `.gitattributes` 已就位。
 >
 > 已处置：早期版本遗留的 `/agent/session/**` 匿名放行与一组从未被代码读取的
 > `agent.*` 配置，已连同 Agent 会话模块、Postman 用例与 `session_summary` 表一并移除。

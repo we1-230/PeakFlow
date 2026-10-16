@@ -124,15 +124,15 @@ curl -X POST http://<你的域名>/api/auth/register \
   -H 'Content-Type: application/json' \
   -d '{"username":"opsadmin","password":"<你的强密码>","email":"opsadmin@your-domain.com","nickname":"运营管理员"}'
 
-# ② 授权（打开 prod/grant-role.sql，改开头两个变量后执行）
+# ② 授权（打开 prod/grant-admin-role.sql，改开头两个变量后执行）
 #     SET @username  = 'opsadmin';
 #     SET @role_code = 'admin';
-docker exec -i <mysql容器名> mysql -uroot -p<密码> <库名> < deploy/mysql/prod/grant-role.sql
+docker exec -i <mysql容器名> mysql -uroot -p<密码> <库名> < deploy/mysql/prod/grant-admin-role.sql
 
 # ③ 验证：脚本末尾会输出该账号的角色与权限清单
 ```
 
-`grant-role.sql` **支持全部 4 个角色**，改 `@role_code` 即可：
+`grant-admin-role.sql` **支持全部 4 个角色**，改 `@role_code` 即可：
 
 | `@role_code` | 角色 | 权限数 | 能做什么 |
 |---|---|---:|---|
