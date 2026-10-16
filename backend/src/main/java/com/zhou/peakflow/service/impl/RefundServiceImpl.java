@@ -512,15 +512,30 @@ public class RefundServiceImpl implements RefundService {
         try {
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
+            // 显式只要 JSON：第三方接口不是内容协商的场合，Accept 必须钉死。
+            // 不写的话 RestTemplate 会按自身转换器链拼出
+            // `text/plain, application/xml, text/xml, application/json, ...`，
+            // 一旦对端（或本服务）classpath 上有 XML 转换器，应答就会变成 XML 而不是 JSON。
+            headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
             HttpEntity<Map<String, Object>> entity = new HttpEntity<>(params, headers);
 
             String resp = REST_TEMPLATE.postForObject(refundUrl, entity, String.class);
             log.info("{}第三方退款接口应答：refundNo={}, resp={}", LOG_PREFIX, record.getRefundNo(), resp);
 
-            // 同步应答只代表"请求受理了"，最终结果以异步回调为准
-            if (!isAccepted(resp)) {
+            // 同步应答只代表"请求受理了"，最终结果以异步回调为准。
+            // 判定必须是三态：只有第三方"明确拒绝"才允许置为失败；
+            // "读不懂应答"绝不能当成拒绝 —— 钱可能已经退出去了，把它标成「退款失败」，
+            // 后续人工重试/作废就会重复打款或吞掉这笔退款，直接造成资损。
+            AcceptResult acceptResult = parseAcceptResult(resp);
+            if (acceptResult == AcceptResult.REJECTED) {
                 refundTxService.markRequestFailed(record.getRefundNo(),
                         "第三方拒绝受理：" + truncate(resp, 200));
+            } else if (acceptResult == AcceptResult.UNKNOWN) {
+                // 保留「退款中」：异步回调到了就自动收敛，没到则由 sweepStuckRefunding
+                // 用同一退款单号重发（三方按 out_refund_no 幂等），人工也可按需介入
+                log.warn("{}无法判定第三方是否已受理退款，保留「退款中」交由回调或兜底重发收敛，"
+                                + "refundNo={}, resp={}",
+                        LOG_PREFIX, record.getRefundNo(), truncate(resp, 200));
             }
         } catch (Exception e) {
             log.error("{}调用第三方退款接口异常，refundNo={}", LOG_PREFIX, record.getRefundNo(), e);
@@ -529,18 +544,39 @@ public class RefundServiceImpl implements RefundService {
         }
     }
 
+    /**
+     * 第三方同步应答的判定结果。
+     *
+     * <p>必须有 UNKNOWN 这一档：应答不是我们能识别的 JSON（网关错误页、HTML、被中间层改写格式等）时，
+     * 既不能认为已受理、也不能认为被拒绝 —— 猜错的代价是资损，只能保留中间态交给兜底收敛。
+     */
+    private enum AcceptResult {
+        /** 明确了受理 */
+        ACCEPTED,
+        /** 明确了拒绝受理 */
+        REJECTED,
+        /** 读不懂应答，无法判定 */
+        UNKNOWN
+    }
+
     /** 解析第三方同步应答，判断请求是否被受理 */
     @SuppressWarnings("unchecked")
-    private boolean isAccepted(String resp) {
+    private AcceptResult parseAcceptResult(String resp) {
         if (!StringUtils.hasText(resp)) {
-            return false;
+            // 空应答同样是"对方什么都没说"，不能推断成拒绝
+            return AcceptResult.UNKNOWN;
         }
         try {
             Map<String, Object> map = objectMapper.readValue(resp, Map.class);
-            return Boolean.TRUE.equals(map.get("success"));
+            if (!map.containsKey("success")) {
+                // 是 JSON，但没有约定的受理标志位：判不了，也不能当成拒绝
+                return AcceptResult.UNKNOWN;
+            }
+            return Boolean.TRUE.equals(map.get("success"))
+                    ? AcceptResult.ACCEPTED
+                    : AcceptResult.REJECTED;
         } catch (Exception e) {
-            log.warn("{}解析第三方应答失败，按未受理处理，resp={}", LOG_PREFIX, resp);
-            return false;
+            return AcceptResult.UNKNOWN;
         }
     }
 
