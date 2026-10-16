@@ -334,7 +334,12 @@ if [ "$DRY_RUN" = "0" ]; then
 
     # 安全响应头（生产 nginx 配置里 include 出来的那四个）
     HDRS="$(curl -s -D - -o /dev/null -m 15 "$BASE/" 2>/dev/null || true)"
-    for h in X-Content-Type-Options X-Frame-Options Referrer-Policy Permissions-Policy; do
+    # 含 HSTS：它和其余 4 个头放在同一个 snippet 里（见
+    # deploy/nginx/snippets/peakflow-security-headers.inc 的说明），
+    # HTTP / HTTPS 两种形态下都会下发，所以这里恒检查。
+    # 加进冒烟的意义：HSTS 极易因为「location 里设了别的 add_header」而被静默覆盖掉，
+    # 配置里能 grep 到、线上却下发不了 —— 只有真的 curl 一次才能发现。
+    for h in X-Content-Type-Options X-Frame-Options Referrer-Policy Permissions-Policy Strict-Transport-Security; do
         if printf '%s' "$HDRS" | grep -qi "^${h}:"; then
             ok "安全头 $h 存在"
         else
