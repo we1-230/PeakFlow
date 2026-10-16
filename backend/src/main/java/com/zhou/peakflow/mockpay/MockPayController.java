@@ -72,7 +72,9 @@ public class MockPayController {
     }
 
 
-    @PostMapping("/pay")
+    // produces 显式声明 JSON：这里模拟的是"第三方渠道的 JSON 接口"，格式不能随客户端 Accept 漂移。
+    // （曾经因为 classpath 上有 jackson-dataformat-xml，RestTemplate 客户端会拿到 XML 应答）
+    @PostMapping(value = "/pay", produces = MediaType.APPLICATION_JSON_VALUE)
     public Map<String, Object> pay(@RequestBody Map<String, Object> body) {
         String outTradeNo = stringValue(body.get("out_trade_no"));
         String amount = stringValue(body.get("amount"));
@@ -137,7 +139,8 @@ public class MockPayController {
     }
 
 
-    @PostMapping("/refund")
+    // 同上：退款同步应答是商户按 JSON 解析的，必须恒定 JSON
+    @PostMapping(value = "/refund", produces = MediaType.APPLICATION_JSON_VALUE)
     public Map<String, Object> refund(@RequestBody Map<String, Object> body) {
         String outRefundNo = stringValue(body.get("out_refund_no"));
         String outTradeNo = stringValue(body.get("out_trade_no"));
