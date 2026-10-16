@@ -2,62 +2,67 @@
    移动端适配（纯增量：只做 ≤768px 的覆盖，绝不影响桌面布局）
    断点约定：与 taobao.css 既有断点一致（768px 为手机/平板分界）
    范围：商城前台（mall）为主；管理后台以桌面为主不做重构
+
+   ⚠️ 为什么大量使用 !important：视图组件的 <style scoped> 编译后
+   特异性是 0,2,0（如 .detail-image[data-v-xxx]），高于本文件的单类
+   选择器 0,1,0；不加 !important 覆盖不生效。所有 !important 都被
+   @media (max-width:768px) 包裹，桌面端完全不受影响。
    ============================================================ */
 @media (max-width: 768px) {
 
   /* ---------- 顶部细栏：允许换行，压缩高度 ---------- */
-  .topbar { height: auto; min-height: 32px; }
+  .topbar { height: auto !important; min-height: 32px; }
   .topbar-inner { padding: 4px 10px; flex-wrap: wrap; }
 
   /* ---------- Header：logo / 搜索 / 购物车 纵向堆叠 ---------- */
-  .mall-header { padding: 12px 0; }
+  .mall-header { padding: 12px 0 !important; }
   .mall-header-inner { flex-wrap: wrap; gap: 10px; }
-  .mall-search { flex: 1 1 100%; max-width: none; order: 3; }
-  .mall-cart-btn { padding: 6px 14px; font-size: 13px; margin-left: auto; }
+  .mall-search { flex: 1 1 100% !important; max-width: none !important; order: 3; }
+  .mall-cart-btn { padding: 6px 14px !important; font-size: 13px; margin-left: auto; }
 
   /* ---------- 分类导航：压缩内边距 ---------- */
-  .cat-nav-five .cat-nav-item { font-size: 14px; padding: 6px 12px; }
+  .cat-nav-five .cat-nav-item { font-size: 14px !important; padding: 6px 12px !important; }
 
   /* ---------- 主内容边距 ---------- */
   .mall-main { margin-top: 10px; }
 
   /* ---------- 商品卡片：网格已由 taobao.css 降为 2 列，微调间距 ---------- */
   .product-grid { gap: 10px; }
-  .product-card .title { font-size: 13px; height: 37px; }
-  .product-card .price { font-size: 17px; }
+  .product-card .title { font-size: 13px !important; height: 37px !important; }
+  .product-card .price { font-size: 17px !important; }
 
   /* ---------- 秒杀横幅：纵向堆叠，压缩标题 ---------- */
-  .seckill-banner { flex-direction: column; align-items: flex-start; gap: 10px; padding: 14px 16px; }
-  .seckill-banner .title { font-size: 20px; }
+  .seckill-banner { flex-direction: column !important; align-items: flex-start !important; gap: 10px; padding: 14px 16px !important; }
+  .seckill-banner .title { font-size: 20px !important; }
 
   /* ---------- 商品详情：图文上下布局，图片跟随屏宽 ---------- */
-  .detail-card { flex-direction: column; gap: 16px; padding: 14px; }
-  .detail-image { flex: 1 1 auto; width: 100%; }
-  .large-img-wrap { width: 100%; height: auto; aspect-ratio: 1 / 1; }
+  .detail-card { flex-direction: column !important; gap: 16px !important; padding: 14px !important; }
+  .detail-image { flex: 1 1 auto !important; width: 100% !important; }
+  .large-img-wrap { width: 100% !important; height: auto !important; aspect-ratio: 1 / 1; }
 
   /* ---------- 购物车：表格横向滚动，列宽不再挤压 ---------- */
-  .cart-table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; min-width: 640px; }
+  .cart-table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; min-width: 640px !important; }
 
   /* ---------- 结算页：地址单列 ---------- */
-  .address-list { grid-template-columns: 1fr; }
+  .address-list { grid-template-columns: 1fr !important; }
 
   /* ---------- 订单详情/列表：压缩商品行固定列宽，名称占主导 ---------- */
-  .item-row .item-price { width: 84px; }
-  .item-row .item-qty { width: 48px; }
-  .item-row .item-subtotal { width: 96px; }
-  .amount-rows { max-width: none; }
+  .item-row .item-price { width: 84px !important; }
+  .item-row .item-qty { width: 48px !important; }
+  .item-row .item-subtotal { width: 96px !important; }
+  .amount-rows { max-width: none !important; }
 
   /* ---------- 状态页签：可横向滑动 ---------- */
   .status-tabs { overflow-x: auto; }
-  .status-tab { padding: 10px 14px; font-size: 14px; white-space: nowrap; flex-shrink: 0; }
+  .status-tab { padding: 10px 14px !important; font-size: 14px !important; white-space: nowrap; flex-shrink: 0; }
 
   /* ---------- Element Plus 弹层：窄屏不允许超宽 ---------- */
   .el-dialog { width: 92% !important; max-width: 92vw; margin-top: 6vh !important; }
   .el-message-box { width: 88% !important; max-width: 420px; }
 
   /* ---------- 通用按钮：触控目标加大、间距收紧 ---------- */
-  .btn-large { padding: 12px 28px; font-size: 15px; }
+  .btn-large { padding: 12px 28px !important; font-size: 15px !important; }
 
   /* ---------- Footer ---------- */
-  .mall-footer { padding: 22px 0; margin-top: 24px; }
+  .mall-footer { padding: 22px 0 !important; margin-top: 24px; }
 }
