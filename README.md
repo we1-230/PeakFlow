@@ -5,6 +5,7 @@
 > 前后端分离，含 123 请求 / 768 断言的 Postman 全链路测试套件。
 
 <p align="left">
+  <a href="https://github.com/we1-230/PeakFlow/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/we1-230/PeakFlow/actions/workflows/ci.yml/badge.svg"></a>
   <img alt="Java" src="https://img.shields.io/badge/Java-17-007396?logo=openjdk&logoColor=white">
   <img alt="Spring Boot" src="https://img.shields.io/badge/Spring%20Boot-2.7.18-6DB33F?logo=springboot&logoColor=white">
   <img alt="Vue" src="https://img.shields.io/badge/Vue-3.4-42B883?logo=vuedotjs&logoColor=white">
