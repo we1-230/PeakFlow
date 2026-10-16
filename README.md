@@ -13,6 +13,37 @@
   <img alt="RocketMQ" src="https://img.shields.io/badge/RocketMQ-4.9.7-2C3E50">
 </p>
 
+<p align="left">
+  <img alt="Docker Compose" src="https://img.shields.io/badge/docker%20compose-%E4%B8%80%E9%94%AE%E5%90%AF%E5%8A%A8-2496ED?logo=docker&logoColor=white">
+  <img alt="Backend tests" src="https://img.shields.io/badge/backend%20tests-204-brightgreen">
+  <img alt="Frontend tests" src="https://img.shields.io/badge/frontend%20tests-215-brightgreen">
+  <img alt="API assertions" src="https://img.shields.io/badge/API%20assertions-768-brightgreen">
+  <img alt="Single entry" src="https://img.shields.io/badge/entry-nginx%3A80-009639?logo=nginx&logoColor=white">
+</p>
+
+---
+
+## 30 秒上手
+
+```bash
+git clone https://github.com/we1-230/PeakFlow.git && cd PeakFlow
+cp .env.example .env        # 填 JWT_SECRET（≥32 字节随机串）；其余本地默认值可直接用
+docker compose up -d --build
+```
+
+浏览器打开 **http://localhost**（唯一入口，前端 + API 由 nginx 统一提供）。
+
+| 入口 | 地址 | 演示账号 |
+|---|---|---|
+| 商城端 | http://localhost/ | `malluser` / `User123456` |
+| 管理后台 | http://localhost/admin/login | `pfadmin` / `Admin123456` |
+
+> 想先看效果再看代码？按上面三步即可；想跑测试见 [§9 测试](#九测试)；
+> 想本机调试（IDE 直跑后端、vite dev server）见 [§6.1](#61-前置条件) 的 `docker-compose.dev.yml` 叠加方式。
+>
+> 演示账号密码是**公开的示例值**，仅供本地演示（完整账号表见 [§8](#八演示账号)）；
+> 生产环境不要加载 `04-demo-account.sql`。
+
 ---
 
 ## 目录
@@ -167,20 +198,40 @@ flowchart TB
 3. 鉴权分两层：白名单（`security.white-list` + `SecurityConfig`）放行公开接口，
    其余接口经 Spring Security 认证后，再由方法级 `@PreAuthorize("hasAuthority('xxx')")` 校验权限点。
 
+> 上图是**本机开发形态**（前端 3000、后端 8080、中间件发布调试端口）。
+> **容器部署形态**下拓扑收敛为一个入口：
+>
+> ```mermaid
+> flowchart LR
+>     U["浏览器"] --> N["nginx :80<br/>唯一对外入口"]
+>     N -->|"静态资源"| N
+>     N -->|"/api/ 反代<br/>least_conn + max_fails"| B1["backend1 :8080"]
+>     N --> B2["backend2 :8080"]
+>     B1 --> MW["MySQL / Redis / RocketMQ<br/>（自定义网络内，不发布端口）"]
+>     B2 --> MW
+> ```
+>
+> 两个 backend 跑**同一个镜像**，仅靠环境变量区分（`SNOWFLAKE_WORKER_ID` 机器位、
+> 各实例独立日志）；定时任务用 Redisson 分布式锁 `lock:task:*` 保证同一轮只有一个实例真正执行。
+> 详见 [6.1 前置条件](#61-前置条件) 与 [9.4 容器内全量回归与专业检测](#94-容器内全量回归与专业检测)。
+
 ---
 
 ## 五、目录结构
 
 ```
 PeakFlow/
-├── docker-compose.yml              # 中间件 + 后端双实例 + 前端 Nginx，一条命令起全套
+├── docker-compose.yml              # 中间件 + 后端双实例 + nginx（唯一入口 :80），一条命令起全套
+├── docker-compose.dev.yml          # 调试端口覆盖（3307/6380/9876/8080/8081），需显式 -f 叠加
 ├── .env.example                    # 环境变量模板（本文件说明见第七节）
+├── .dockerignore                   # 构建上下文瘦身（排除 target / node_modules / .git 等）
 ├── docs/API.md                     # 接口文档（71 个端点总览）
 ├── backend/                        # Spring Boot 后端
 │   ├── Dockerfile / .dockerignore  # 多阶段构建（maven 打包 → temurin JRE 运行）
 │   ├── pom.xml
 │   ├── mvnw / mvnw.cmd             # Maven Wrapper
 │   ├── postman/                    # 接口测试套件（123 请求 / 768 断言）+ 权威测试规范
+│   │   └── smoke_test.py           # 端到端冒烟（18 个断言点，纯标准库）
 │   └── src/
 │       ├── main/java/com/zhou/peakflow/
 │       │   ├── controller/         # 13 个控制器，共 68 个业务端点
@@ -188,7 +239,7 @@ PeakFlow/
 │       │   ├── mapper/             # MyBatis-Plus Mapper
 │       │   ├── pojo/ dto/ vo/      # 实体 / 入参 / 出参
 │       │   ├── enums/              # ResultCode、OrderStatus、RefundStatus 等
-│       │   ├── config/             # Security、CORS、Redis、线程池、TraceId 等 15 个配置类
+│       │   ├── config/             # Security、CORS、Redis、线程池、TraceId、消息转换器等（18 个文件）
 │       │   ├── security/           # JWT 过滤器与工具
 │       │   ├── consumer/           # RocketMQ 消费者（含死信处理）
 │       │   ├── task/               # 定时扫表（订单超时、退款中态收敛）
@@ -205,14 +256,15 @@ PeakFlow/
 │       │   ├── lua/                # 秒杀库存扣减 / 回补 / 重置脚本
 │       │   ├── mapper/             # MyBatis XML
 │       │   └── static/             # MockPay 收银台页面
-│       └── test/                   # 单元测试
+│       └── test/                   # 单元测试（Mockito）+ 集成测试（SpringBootTest + MockMvc）
 ├── deploy/
 │   ├── mysql/
 │   │   ├── init/                   # 00 建三库 / 01 表结构 / 02 基础数据 / 03 商品目录 / 04 演示账号 / 05 灌 test+prod
 │   │   ├── prod/grant-admin-role.sql # 生产账号授权（按用户名赋角色，4 个角色通用）
 │   │   └── README.md               # 数据库初始化权威说明
 │   ├── nginx/default.conf          # 宿主机 Nginx 方案（upstream 指向 127.0.0.1:8080/8081）
-│   ├── rocketmq/broker.conf        # brokerIP1=127.0.0.1（不配会注册容器内网 IP）
+│   ├── rocketmq/broker.conf        # brokerIP1 模板（__BROKER_IP1__，启动时 sed 渲染）
+│   ├── tester/Dockerfile           # 测试镜像：JDK + Maven + newman + python3 + redis-cli
 │   └── scripts/pull-images.sh      # 国内网络拉镜像（镜像站 → retag 成规范名）
 └── frontend/                       # Vue 3 前端
     ├── Dockerfile / .dockerignore  # 多阶段构建（node 打包 → nginx:alpine 托管）
@@ -235,34 +287,63 @@ PeakFlow/
 
 ### 6.1 前置条件
 
-| 组件 | 版本 | 端口 |
-|---|---|---|
-| JDK | 17 | — |
-| Node.js | ≥ 18 | — |
-| MySQL | 8.0 | **3307**（见下方说明） |
-| Redis | 7（或 6+） | 6380 |
-| RocketMQ | 4.9.7（NameServer + Broker） | 9876 / 10911 |
+**推荐路径（容器）**：只需要 Docker，其余全部由 compose 提供。
 
-中间件与前后端已全部编排进 `docker-compose.yml`：
+**本机直跑路径（可选）**：JDK 17、Node.js ≥ 18、Maven 3.9；中间件仍建议用容器起。
+
+整栈已全部编排进 `docker-compose.yml`，**一条命令起全套**：
 
 ```bash
-# 只起中间件
-docker compose up -d mysql redis namesrv broker
-
-# 起整套（中间件 + 后端双实例 backend1/backend2 + 前端 nginx）
-docker compose up -d
-
-# 看状态：全部应为 healthy
-docker compose ps
+docker compose up -d --build     # 中间件 + 后端双实例 + nginx
+docker compose ps                # 7 个服务全部应为 Up (healthy)
 ```
+
+> 测试与压测用的 `tester` 服务（内含 JDK / Maven / newman / python3 / redis-cli）**默认不启动**，
+> 由 compose profile 控制，需要时显式带上：
+>
+> ```bash
+> docker compose --profile test up -d tester
+> ```
+
+> **★ 对外只有一个入口**：`http://localhost`（nginx）。
+> mysql / redis / rocketmq / backend1 / backend2 **都不发布宿主机端口** ——
+> 外部无法直连数据库与后端实例，这是有意的收敛，也是生产部署应有的样子。
+
+需要本机调试时，叠加 `docker-compose.dev.yml` 把调试端口放出来
+（该文件**不会被 compose 自动加载**，所以不影响上面的默认形态）：
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+```
+
+叠加后即可：在 IDE 里直跑后端（连 127.0.0.1:3307 / 6380 / 9876）、
+在宿主机跑 postman 脚本（3307）与 newman（8080）、跑前端 vite dev server（代理 8080）。
+
+| 组件 | 版本 | 端口（默认形态） | 端口（叠加 dev 后） |
+|---|---|---|---|
+| nginx（唯一入口） | 1.27 | **80** | 80 |
+| MySQL | 8.0 | 不发布 | **3307**（见下方说明） |
+| Redis | 7 | 不发布 | 6380 |
+| RocketMQ | 4.9.7 | 不发布 | 9876 / 10911 |
+| backend1 / backend2 | JDK 17 | 不发布 | 8080 / 8081 |
 
 > **为什么 MySQL 是 3307 而不是 3306**：本机 3306 常被「Windows 服务 MySQL80」占用，
 > 且那个实例里往往存着别的项目的库。PeakFlow 的容器映射到 **3307** 避免互相干扰。
 > Redis 用 **6380** 而非默认 6379 也是同样的理由。
 >
-> **RocketMQ 的 `brokerIP1` 是关键项**：`deploy/rocketmq/broker.conf` 里配成 `127.0.0.1`，
-> 不配的话 broker 会把容器内网 IP（如 172.x）注册到 NameServer，
-> 宿主机上的应用拿到后连不上，表现为「秒杀能跑但没走 MQ、实际走了降级同步落库」。
+> **RocketMQ 的 `brokerIP1` 是关键项，且分两种形态**：它决定「应用从 NameServer 拿到哪个地址去连 broker」，
+> 写错的表现是**秒杀接口仍然返回 200、订单也建得出来**，只是日志里刷
+> `syncSend failed ... BrokersSent: [broker-a, broker-a, broker-a]` + `MQ发送失败…直接降级同步落库`
+> —— 即 **MQ 完全没参与，链路静默降级**，从接口层面完全看不出来。
+>
+> 因此 `deploy/rocketmq/broker.conf` 里写的是占位符 `__BROKER_IP1__`，容器启动时用 `sed` 渲染到 `/tmp/broker.conf`：
+>
+> | 形态 | `BROKER_IP1` 取值 | 原因 |
+> |---|---|---|
+> | 默认（全容器） | `broker`（服务名，compose 默认值） | 后端在容器内，拿到服务名才连得上同网络的 broker |
+> | 叠加 `docker-compose.dev.yml` | `127.0.0.1` | 后端在宿主机上直跑，必须拿到宿主机视角的地址 |
+>
+> 渲染结果会在启动日志里打印（`[peakflow] brokerIP1 = ...`），排查时先看这一行。
 >
 > 国内网络拉镜像：`./deploy/scripts/pull-images.sh`（先从镜像站拉再 retag 成规范名）。
 
@@ -313,16 +394,27 @@ java -jar target/PeakFlow-1.0-SNAPSHOT.jar --spring.profiles.active=dev
 
 # 方式三：容器（多实例，推荐）
 cd ..
-docker compose up -d backend1 backend2
+docker compose up -d --build backend1 backend2
 ```
 
 > ⚠️ 本机直跑时若端口不是 8080，先看环境里有没有 `SERVER_PORT`（部分沙箱/IDE 会注入 `SERVER__PORT`，
 > 会被 Spring 宽松绑定成 `server.port`）。命令行参数优先级最高，可用
 > `java -jar ... --server.port=8080` 强制覆盖。
+>
+> ⚠️ 本机直跑需要先叠加 dev 覆盖文件把 3307/6380/9876 放出来，否则连不上中间件。
 
-启动成功后：
+启动成功后（默认形态下后端不发布端口，下面用「容器内」与「叠加 dev 后」两种方式验证）：
 
-| 地址 | 说明 |
+```bash
+# 容器内自检（推荐，任何时候都可用）
+docker compose exec backend1 curl -s localhost:8080/actuator/health
+docker compose exec backend2 curl -s localhost:8080/actuator/health
+
+# 经对外入口自检（走 nginx 反代）
+curl -s http://localhost/api/category/list
+```
+
+| 地址（叠加 dev 后） | 说明 |
 |---|---|
 | http://localhost:8080/actuator/health | 健康检查（backend1） |
 | http://localhost:8081/actuator/health | 健康检查（backend2） |
@@ -339,21 +431,25 @@ docker compose up -d backend1 backend2
 ```bash
 cd frontend
 npm ci               # 严格按 package-lock.json 安装，比 npm install 更可复现
-npm run dev          # http://localhost:3000
-
-# 容器方式（Nginx 托管 + 反代后端，推荐）
-cd ..
-docker compose up -d frontend
+npm run dev          # http://localhost:3000（需叠加 dev 覆盖文件或本机直跑后端）
 ```
 
-> 容器方式下前端由 Nginx 托管在 **3001**，且 Nginx 已把 `/api/` 反代到 `upstream peakflow_backend`
-> （`backend1:8080` + `backend2:8080`，`least_conn` 策略），因此容器模式下前端与后端同源，
-> 不存在跨域问题，也不需要单独配 Vite 代理。
+**容器方式（推荐）**：前端由 compose 里的 `nginx` 服务托管并反代后端，
+`docker compose up -d --build` 时已一并启动，无需单独命令。
 
-| 入口 | 本机 dev（3000） | 容器（3001） |
+> `nginx` 是**整个系统唯一的对外入口**，只暴露 80 端口：
+>
+> - 静态资源（Vue 打包产物）直接由其托管，**不再有 3001 端口**；
+> - `/api/` 反代到 `upstream peakflow_backend`（`backend1:8080` + `backend2:8080`，`least_conn` 策略，
+>   带 `max_fails`/`fail_timeout` 故障摘除），因此前端与后端**同源**，不存在跨域问题；
+> - `/api/uploads/` 由各 backend 实例直接提供。未配 OSS 时上传降级落到 `/app/uploads`，
+>   两个实例**共享同一个 named volume `peakflow-uploads`**，所以「A 上传、B 回显」也能读到。
+
+| 入口 | 本机 dev（3000） | 容器（唯一入口 80） |
 |---|---|---|
-| 商城端 | http://localhost:3000/ | http://localhost:3001/ |
-| 管理后台 | http://localhost:3000/admin/login | http://localhost:3001/admin/login |
+| 商城端 | http://localhost:3000/ | http://localhost/ |
+| 管理后台 | http://localhost:3000/admin/login | http://localhost/admin/login |
+| 后端 API | 由 Vite 代理到 8080 | http://localhost/api/... |
 
 ---
 
@@ -426,6 +522,29 @@ newman run PeakFlow-API.postman_collection.json -e env-test.postman_environment.
 python verify_db_redis.py        # 落库验证：DB 与 Redis 的真实副作用
 ```
 
+**全容器下执行**（后端不发布宿主机端口，此时必须用 `tester` 服务）：
+
+```bash
+docker compose --profile test up -d tester
+
+# 必须把 cwd 切到 postman 目录：集合里 src 是相对路径（fixtures/...），
+# 按 cwd 解析，否则上传类用例会以 "not a multipart request" 失败
+export MSYS_NO_PATHCONV=1        # Git Bash 需要，否则 -w 里的容器路径会被改写成 Windows 路径
+docker compose exec -T -w /workspace/backend/postman tester sh -c '
+  python3 seed_base_data.py &&
+  python3 setup_test_data.py &&
+  newman run PeakFlow-API.postman_collection.json -e env-test.postman_environment.json \
+    --env-var baseUrl=http://nginx/api &&
+  python3 verify_db_redis.py'
+```
+
+> ⚠️ 环境文件里 `baseUrl` 默认是 `http://localhost:8080`，**容器内那条地址指的是 tester 自己**，
+> 会得到 `connect ECONNREFUSED 127.0.0.1:8080`。必须用 `--env-var baseUrl=http://nginx/api` 覆盖
+> （经唯一入口走，顺带覆盖反代与负载均衡）。
+
+脚本全部**环境变量驱动**（`DB_HOST`/`DB_PORT`/`REDIS_HOST`/`REDIS_PORT`/`API_BASE`/`REDIS_CLI`），
+容器内由 compose 注入指向服务名与 `http://nginx/api`，本机直跑时用默认值（3307/6380/8080）。
+
 测试按**业务链路**组织（而非「一个接口一个请求」），ID 全部靠脚本写入环境变量传递，零手工复制。
 文件清单、分组设计、断言标准、变量传递与 **7 个已修复缺陷的复盘** 见 [`backend/postman/README.md`](backend/postman/README.md)。
 
@@ -442,6 +561,72 @@ npm run test:ui           # 可视化界面
 > ⚠️ `test:integration` 与 `test:regression` 用的是 `vitest.integration.config.js`，**不装 MSW**，
 > 属真联调测试：必须先按 6.1/6.4 把中间件与后端跑起来，否则会大面积 `ECONNREFUSED 127.0.0.1:8080`。
 > 只有 `npm test`（`vitest.config.js`）用 MSW 拦截 HTTP，可脱离后端独立运行。
+
+### 9.3 容器内一键冒烟（端到端）
+
+`backend/postman/smoke_test.py` 是一条**最短的完整链路**：首页 → 注册 → 登录 → 加地址 →
+商品列表 → 秒杀列表 → 秒杀下单+轮询结果 → 普通下单 → 发起支付+校验收银台地址 →
+模拟支付 → 确认已付款 → 申请退款 → 管理员登录 → 审核 → 确认已退款，共 **18 个断言点**，
+纯标准库（容器里无需装依赖）。
+
+```bash
+export MSYS_NO_PATHCONV=1
+docker compose exec -T -w /workspace/backend/postman tester env API_BASE=http://nginx/api python3 smoke_test.py
+```
+
+> `API_BASE` 走 **`http://nginx/api`** 而不是直连某个实例：这样冒烟同时也覆盖了
+> 反代链路与负载均衡。脚本会自动从 `API_BASE` 推导 `WEB_BASE`（去掉 `/api` 后缀）。
+
+### 9.4 容器内全量回归与专业检测
+
+```bash
+export MSYS_NO_PATHCONV=1
+
+# 1. 后端全量单测 + 集成测试（需 tester 服务）
+docker compose exec -T -w /workspace/backend tester mvn test
+
+# 2. 前端回归（真联调；经唯一入口访问后端）
+cd frontend && PEAKFLOW_API_BASE=http://localhost/api npx vitest run --config vitest.integration.config.js test/regression
+
+# 3. nginx 配置语法
+docker compose exec -T nginx nginx -t
+
+# 4. 对外入口与接口格式
+curl -sI http://localhost | head -1              # 期望 HTTP/1.1 200 OK
+curl -s  http://localhost/api/product/page | head -c 120   # 期望 JSON
+
+# 5. 资源占用
+docker stats --no-stream
+
+# 6. 日志体检（干净窗口下应全部为 0）
+docker compose logs backend1 backend2 | grep -cE " ERROR | 5xx "
+docker compose logs backend1 backend2 | grep -c "syncSend failed"
+docker compose logs backend1 backend2 | grep -c "降级同步落库"
+
+# 7. 重启后仍正常
+docker compose --profile test down && docker compose up -d && docker compose ps
+```
+
+**负载均衡行为验证**（含故障摘除）：
+
+```bash
+# 打 20 次，观察两个实例日志都在输出（least_conn 应基本均分）
+for i in $(seq 1 20); do curl -s -o /dev/null -w "%{http_code} " http://localhost/api/product/page; done
+
+# 停掉 backend2：请求应全部 200 并落到 backend1（max_fails 生效）
+docker compose stop backend2
+for i in $(seq 1 10); do curl -s -o /dev/null -w "%{http_code} " http://localhost/api/product/page; done
+docker compose start backend2
+```
+
+**重复定时任务验证**（多实例下同一轮只应执行一次）：人为占住 Redisson 锁，
+两个实例都应打出「本轮已由其他实例执行，跳过」：
+
+```bash
+docker compose exec -T redis redis-cli HSET lock:task:order-sweep:timeout-pending dummy 1
+docker compose exec -T redis redis-cli PEXPIRE lock:task:order-sweep:timeout-pending 75000
+docker compose logs backend1 backend2 | grep "本轮已由其他实例执行"
+```
 
 ---
 
@@ -507,6 +692,39 @@ npm run test:ui           # 可视化界面
 | 正确性 | **金额比对**：回调金额必须与本地支付单一致，防改价攻击 |
 | 幂等性 | 状态机 **CAS**：重复回调不产生副作用；重复预支付复用同一 `outTradeNo` |
 
+### 10.7 接口响应格式恒定 JSON（已排除 XML 转换器）
+
+本项目**没有任何对外 XML 接口**，但依赖 `com.aliyun:alibabacloud-oss-v2` 把
+`jackson-dataformat-xml` 传递引进了 classpath，Spring MVC 据此自动注册了
+`MappingJackson2XmlHttpMessageConverter`。由于内容协商会按客户端 Accept 的**顺序**挑格式，
+同一个接口出现了两种响应：
+
+| 调用方 | Accept 里的顺序 | 实际拿到 |
+|---|---|---|
+| 浏览器 / axios | `application/json` 在前 | JSON |
+| Java `RestTemplate` | `application/xml`、`text/xml` 在 `application/json` **之前** | **XML** |
+
+**它造成的真实缺陷**：`RefundServiceImpl` 用 `RestTemplate` 调第三方退款接口，收到的是
+`<Map><success>true</success><message>退款受理成功，结果已通知商户</message></Map>`。
+应答明明是「已受理」，却因为解析不出 JSON 被当成「未受理」，退款单被写成「退款失败」——
+**钱已经退给用户了**。这次侥幸没造成资损，只是因为异步回调先到、CAS 的 `WHERE status = 1` 已不满足。
+
+三层修复：
+
+| 层 | 措施 |
+|---|---|
+| 治本 | `MessageConverterConfig` 把 XML 转换器从 MVC 转换器链里摘掉，所有接口恒定 JSON（OSS SDK 用自带 ObjectMapper 解析 XML，不受影响） |
+| 显式 | `MockPayController` 的 `/pay`、`/refund` 加 `produces = application/json`（它模拟的是 JSON 渠道） |
+| 客户端 | `RefundServiceImpl` 显式 `Accept: application/json`，不再依赖转换器链推导 |
+
+**判定逻辑也一并改成三态**（`ACCEPTED` / `REJECTED` / `UNKNOWN`）：
+只有第三方**明确拒绝**才允许置为失败；「读不懂应答」必须保留中间态交给回调或兜底重发收敛。
+原先的「解析失败 ⇒ 视为未受理 ⇒ 置失败」与 10.4 自己写下的原则
+（「钱可能已经退了，绝不自动判失败」）是矛盾的。
+
+回归测试：`MockPayResponseFormatIntegrationTest` 用 `RestTemplate` 真实的 Accept 原样打接口，
+断言必须返回 JSON —— XML 转换器若因任何新依赖回到 classpath，用例会立刻变红。
+
 ---
 
 ## 十一、文档索引
@@ -527,17 +745,26 @@ npm run test:ui           # 可视化界面
 | 事项 | 说明 |
 |---|---|
 | 演示密码明文散落 | `04-demo-account.sql`、`deploy/mysql/README.md`、`postman/README.md` 等多处含演示账号明文密码（仅演示用，生产不加载该 SQL） |
-| `seed_base_data.py` 硬编码密码 | 本地开发脚本内含本地库密码常量，建议改为读环境变量 |
-| 多实例下的本地降级上传 | 未配 OSS 时上传写各实例本地盘，A 写的文件 B 读不到。生产多实例必须改 OSS 或共享卷 |
+| 脚本内的本地库密码默认值 | `postman/*.py` 已全部改为环境变量驱动，但 `DB_PASSWORD` / `MOCK_PAY_SECRET` 仍带**本地开发用**的兜底默认值；生产环境务必显式注入 |
+| 本机直跑后端时不共享上传目录 | 容器形态已用 named volume `peakflow-uploads` 打通（见下），但若把后端改成本机直跑（`./uploads`）同时又有容器实例在读，两边目录不互通。混用时请统一到容器，或配 OSS |
 | 雪花 ID 生成器暂无调用点 | 业务主键走 `id-type: auto` 自增，`SnowflakeIdGenerator` 已具备多实例分片能力但当前无人调用 |
 
-> 项目**已包含**：`docker-compose.yml`、`backend/Dockerfile`、`frontend/Dockerfile`、
-> `frontend/nginx/default.conf`、`deploy/nginx/default.conf`（宿主机 Nginx 方案）、
-> `deploy/rocketmq/broker.conf`、`deploy/scripts/pull-images.sh`。
+> 项目**已包含**：`docker-compose.yml`、`docker-compose.dev.yml`（调试端口覆盖，**不会**被自动加载）、
+> `.dockerignore`、`backend/Dockerfile`、`frontend/Dockerfile`、`frontend/nginx/default.conf`、
+> `deploy/nginx/default.conf`（宿主机 Nginx 方案）、`deploy/rocketmq/broker.conf`（`brokerIP1` 模板）、
+> `deploy/tester/Dockerfile`（含 JDK/Maven/newman/python3/redis-cli 的测试镜像）、
+> `deploy/scripts/pull-images.sh`、`backend/postman/smoke_test.py`（端到端冒烟）。
 > `.gitignore` 与 `.gitattributes` 已就位。
 >
 > 已处置：早期版本遗留的 `/agent/session/**` 匿名放行与一组从未被代码读取的
 > `agent.*` 配置，已连同 Agent 会话模块、Postman 用例与 `session_summary` 表一并移除。
+> 历史拼写笔误 `plekflow_prod`（少一个 `a`）也已随初始化脚本整改一并修正。
+>
+> 已处置：**未配 OSS 时多实例读不到对方上传的文件**。此前 nginx 用 `least_conn` 分发，
+> 「上传」与随后的「回显读取」会落到不同实例，实例 B 的 `/uploads/**` 里没有实例 A 写的文件，
+> 表现为头像上传成功但回显 404（且只有约一半概率复现）。现在两个 backend 共享 named volume
+> `peakflow-uploads`（挂到 `/app/uploads`），已连跑三轮联调验证不再出现。
+> 生产多实例仍建议直接上 OSS，共享卷只是无凭证时的兜底。
 
 ---
 
