@@ -6,6 +6,7 @@ import * as ElementPlusIconsVue from '@element-plus/icons-vue'
 import App from './App.vue'
 import router from './router.js'
 import './styles/taobao.css'
+import './styles/mobile.css'
 
 const app = createApp(App)
 app.use(createPinia())

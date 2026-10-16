@@ -57,7 +57,7 @@
       <!-- 订单信息 -->
       <div class="detail-block">
         <div class="block-title">订单信息</div>
-        <el-descriptions :column="2" border>
+        <el-descriptions :column="isMobile ? 1 : 2" border>
           <el-descriptions-item label="订单编号">{{ order.orderNo }}</el-descriptions-item>
           <el-descriptions-item label="订单状态">{{ order.statusDesc }}</el-descriptions-item>
           <el-descriptions-item label="下单时间">{{ order.createTime || '-' }}</el-descriptions-item>
@@ -124,6 +124,9 @@ const auth = useAuthStore()
 
 const order = ref(null)
 const loading = ref(false)
+
+// 移动端适配：窄屏下订单信息表降为单列（桌面保持 2 列不变）
+const isMobile = window.innerWidth <= 768
 
 const loadOrder = async () => {
   loading.value = true
