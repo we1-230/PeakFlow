@@ -40,6 +40,11 @@ public interface SeckillOrderService {
     // 回补 Redis 秒杀库存预扣（订单取消/超时关单/退款时由订单服务调用）
     void rollbackRedisStock(Long productId, Integer quantity);
 
+    // 释放「单人单次购买权」门闩（订单取消/超时关单时由订单服务调用：
+    // DB 限购位 seckill_slot 在取消后会释放、允许用户重新参与，
+    // Redis 门闩若不同步释放，用户会被「您已参与过该秒杀活动」拦满 24 小时）
+    void releasePurchaseGate(Long userId, Long productId);
+
     // 秒杀全量缓存预热（列表 + 详情 + 库存）
     void preheatAllSeckillCache();
 }

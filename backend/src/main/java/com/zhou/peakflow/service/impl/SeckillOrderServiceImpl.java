@@ -218,8 +218,9 @@ public class SeckillOrderServiceImpl implements SeckillOrderService {
         return Boolean.TRUE.equals(acquired);
     }
 
-    // 释放购买权门闩（仅订单未落库的失败路径调用）
-    private void releasePurchaseGate(Long userId, Long productId) {
+    // 释放购买权门闩（订单未落库的失败路径、以及订单取消/超时关单时由订单服务调用）
+    @Override
+    public void releasePurchaseGate(Long userId, Long productId) {
         stringRedisTemplate.delete(SECKILL_ORDER_SUCCESS + ":" + userId + ":" + productId);
     }
 

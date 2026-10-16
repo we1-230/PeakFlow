@@ -716,6 +716,9 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
                 }
                 // Redis 预扣库存同步回补（仅当 Key 存在），否则 Redis 与 DB 库存漂移、可抢名额越用越少
                 seckillOrderService.rollbackRedisStock(item.getProductId(), item.getQuantity());
+                // 购买权门闩同步释放：DB 限购位在取消后已允许该用户重新参与，
+                // Redis 门闩若还留着，用户会被「您已参与过该秒杀活动」拦满 24 小时
+                seckillOrderService.releasePurchaseGate(order.getUserId(), item.getProductId());
             }
         } else {
             for (OrderItem item : items) {

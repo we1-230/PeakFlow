@@ -276,6 +276,24 @@ class OrderServiceImplCancelTest {
     }
 
     /**
+     * <p><b>为什么测它：</b>DB 限购位 seckill_slot 在取消后会释放（status 进 (4,5) ⇒ 生成列变 NULL），
+     * 设计上<b>允许用户取消后重新参与</b>；但 Redis 购买权门闩 seckill:order:success:{userId}:{productId}
+     * 若不同步释放，用户会被「您已参与过该秒杀活动」拦满 24 小时 —— Redis 与 DB 判重不一致（2026-10-17
+     * 生产回归实测发现）。</p>
+     * <p><b>关键断言：</b>取消秒杀订单后 <b>releasePurchaseGate(userId, productId) 必须被调用</b>。</p>
+     */
+
+    @Test
+    @DisplayName("[业务正确·秒杀] 秒杀订单取消 → 同步释放 Redis 购买权门闩（允许用户重新参与）")
+    void cancelOrder_seckillOrder_shouldAlsoReleasePurchaseGate() {
+        givenCancellableOrder(SeckillFlag.YES.getCode(), itemsOf(item(PRODUCT_A, 1)));
+
+        assertDoesNotThrow(() -> orderService.cancelOrder(USER_ID, ORDER_ID));
+
+        verify(seckillOrderService).releasePurchaseGate(USER_ID, PRODUCT_A);
+    }
+
+    /**
      * <p><b>为什么测它：</b>数据异常（订单没有明细）时，回补逻辑要能安全跳过，<b>但不能因此让取消失败</b>。</p>
      * <p><b>关键断言：</b>不回补任何库存；取消本身仍然成功、支付单照样关闭。</p>
      */
