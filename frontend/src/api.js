@@ -10,10 +10,46 @@ http.interceptors.request.use(cfg => {
   return cfg
 })
 
+// ---------------------------------------------------------------------------
+// HTTP 层错误分类（导出便于单元测试）
+// 目标：杜绝「网络异常」这类模糊提示，把错误分成用户能理解的四类——
+//   network    网络错误：请求根本没到达服务器（断网 / DNS / 超时 / 被代理拦截）
+//   permission 权限错误：401 未登录或登录过期、403 已登录但无权限
+//   server     接口错误：4xx 参数/资源问题、5xx 服务器内部错误
+//   format     数据格式错误：HTTP 200 但响应体不是预期的 JSON 结构
+// 401 的跳转逻辑不在这里处理，由拦截器负责（要区分商城/后台登录页）。
+// ---------------------------------------------------------------------------
+export function classifyHttpError(err) {
+  if (!err.response) {
+    return { type: 'network', message: '网络连接失败，请检查网络后重试' }
+  }
+  const { status, data } = err.response
+  if (status === 401) {
+    return { type: 'permission', message: '登录已过期，请重新登录' }
+  }
+  if (status === 403) {
+    return { type: 'permission', message: data?.message || '没有操作权限' }
+  }
+  if (status === 404) {
+    return { type: 'server', message: '请求的接口不存在' }
+  }
+  // 4xx：后端 GlobalExceptionHandler 通常带业务文案（如参数校验错误），优先透传
+  if (status < 500) {
+    return { type: 'server', message: data?.message || data?.msg || '请求参数有误' }
+  }
+  return { type: 'server', message: '服务器开小差了，请稍后重试' }
+}
+
 // 响应拦截：统一错误处理
 http.interceptors.response.use(
   res => {
     const d = res.data
+    // 数据格式错误：后端返回了 200 但响应体不是 JSON 对象（如被网关/错误页拦截
+    // 返回 HTML，或 Content-Type 漂移）。axios 会把非 JSON 解析成字符串。
+    if (typeof d === 'string') {
+      ElMessage.error('数据格式异常，请稍后重试')
+      return Promise.reject({ type: 'format', message: '数据格式异常', __classified: true })
+    }
     if (d.code !== undefined && d.code !== 200) {
       // 登录态失效/未登录（HTTP 200 + 业务码 401）：静默清登录态并跳登录，不弹错误
       if (d.code === 401) {
@@ -32,7 +68,8 @@ http.interceptors.response.use(
     return d.data !== undefined ? d.data : d
   },
   err => {
-    if (err.response?.status === 401) {
+    const c = classifyHttpError(err)
+    if (c.type === 'permission' && err.response?.status === 401) {
       localStorage.removeItem('mall_jwt')
       localStorage.removeItem('mall_user')
       const isAdmin = location.pathname.startsWith('/admin') && location.pathname !== '/admin/login'
@@ -41,8 +78,10 @@ http.interceptors.response.use(
         location.href = target
       }
     } else {
-      ElMessage.error(err.response?.data?.message || err.response?.data?.msg || err.message || '网络错误')
+      ElMessage.error(c.message)
     }
+    err.__classified = true
+    err.errorType = c.type
     return Promise.reject(err)
   }
 )

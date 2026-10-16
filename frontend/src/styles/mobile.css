@@ -65,4 +65,39 @@
 
   /* ---------- Footer ---------- */
   .mall-footer { padding: 22px 0 !important; margin-top: 24px; }
+
+  /* ---------- 商品列表：分类侧栏变横向分类条 ---------- */
+  .content-layout { flex-direction: column !important; }
+  .category-sidebar {
+    flex: 1 1 auto !important;
+    width: 100% !important;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+    padding: 10px 12px !important;
+  }
+  .category-sidebar .sidebar-title { width: 100%; }
+  .category-sidebar .category-item { padding: 7px 12px !important; }
+
+  /* ---------- 结算页：底栏换行、金额列压缩 ---------- */
+  .checkout-footer { flex-wrap: wrap; gap: 12px !important; padding: 12px 16px !important; }
+  .summary-price { width: 84px !important; }
+  .summary-qty { width: 48px !important; }
+
+  /* ---------- 商城登录页：卡片不超屏、触控区域足够 ---------- */
+  .auth-card { width: 92% !important; max-width: 420px; }
+
+  /* ---------- 后台登录页：卡片不超屏 ---------- */
+  .login-card { width: 92% !important; max-width: 400px; }
+
+  /* ---------- 管理后台（桌面为主，仅保证手机可操作不溢出） ---------- */
+  .admin-content { padding: 10px !important; }
+  .admin-header { padding: 0 12px !important; }
+  .page-crumb { display: none; }
+  .user-info { display: none; }
+  .header-right { gap: 10px !important; }
+  /* 后台顶栏工具区（搜索/筛选）允许换行，避免横向溢出 */
+  .admin-content .el-form--inline { display: flex; flex-wrap: wrap; gap: 6px; }
+  .admin-content .el-form--inline .el-form-item { margin-right: 0; }
 }

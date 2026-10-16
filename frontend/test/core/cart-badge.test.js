@@ -69,4 +69,27 @@ describe('购物车角标 · 布局层', () => {
     // MSW 的 /api/cart/add 会向桩数据 push 一条，条目数应增加
     await waitFor(() => expect(store.count).toBe(before + 1))
   })
+
+  it('数量超过 99 时角标显示 99+，为 0 时不渲染角标', async () => {
+    const { wrapper } = await mountView(MallLayout, { path: '/' })
+    const store = useCartStore(wrapper.vm.$.appContext.config.globalProperties.$pinia)
+
+    // 0 时不渲染
+    store.count = 0
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('.mall-cart-badge').exists()).toBe(false)
+
+    // 常规数量显示数字
+    store.count = 5
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('.mall-cart-badge').text()).toBe('5')
+
+    // 边界：99 显示数字本身，100 显示 99+
+    store.count = 99
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('.mall-cart-badge').text()).toBe('99')
+    store.count = 100
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('.mall-cart-badge').text()).toBe('99+')
+  })
 })

@@ -62,9 +62,6 @@ button { cursor:pointer; border:none; font-family:inherit; }
 .cat-nav-inner { max-width:var(--max-w); margin:0 auto; padding:0 10px; display:flex; gap:4px; height:44px; align-items:center; overflow-x:auto; }
 .cat-nav-item { padding:6px 14px; font-size:14px; border-radius:16px; cursor:pointer; white-space:nowrap; transition:all .2s; color:#6b5f57; }
 .cat-nav-item:hover, .cat-nav-item.active { background:linear-gradient(135deg,#fff, #f3ece5); color:#ff5000; box-shadow:0 2px 12px rgba(255,80,0,.16); }
-/* 四项均匀分布 */
-.cat-nav-four { display:flex !important; justify-content:space-around !important; }
-.cat-nav-four .cat-nav-item { font-size:16px; font-weight:600; padding:8px 32px; }
 
 /* ============ 主内容 ============ */
 .mall-main { max-width:var(--max-w); margin:16px auto; padding:0 10px; }
@@ -96,15 +93,11 @@ button { cursor:pointer; border:none; font-family:inherit; }
 @keyframes bannerShine { 55%,100% { transform:translateX(100%); } }
 .seckill-banner .title { font-size:28px; font-weight:800; }
 .seckill-banner .sub { font-size:14px; opacity:.85; }
-.seckill-countdown { display:flex; align-items:center; gap:4px; }
-.seckill-countdown .num { background:rgba(0,0,0,.3); padding:4px 8px; border-radius:6px; font-size:18px; font-weight:700; min-width:32px; text-align:center; }
 
 /* ============ 按钮（渐变 + 发光） ============ */
 .btn-primary { background:linear-gradient(135deg,#ff5000,#ff7a1a); color:#fff; padding:10px 28px; border-radius:10px; font-size:15px; font-weight:600; box-shadow:0 6px 18px rgba(255,80,0,.28); transition:all .2s; }
 .btn-primary:hover { box-shadow:0 8px 26px rgba(255,80,0,.42); transform:translateY(-1px); }
 .btn-large { padding:14px 48px; font-size:16px; }
-.btn-outline { border:1px solid #ff5000; color:#ff5000; background:#fff; padding:8px 20px; border-radius:10px; transition:all .2s; }
-.btn-outline:hover { background:#fff2e8; box-shadow:0 0 16px rgba(255,80,0,.2); }
 .btn-seckill { background:linear-gradient(135deg,#E1251B,#F04E3E); color:#fff; padding:10px 28px; border-radius:10px; font-size:15px; font-weight:600; box-shadow:0 6px 18px rgba(225,37,27,.3); transition:all .2s; }
 .btn-seckill:hover { box-shadow:0 8px 26px rgba(225,37,27,.45); transform:translateY(-1px); }
 

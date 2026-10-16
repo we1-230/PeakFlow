@@ -37,7 +37,7 @@
         <router-link to="/cart" class="mall-cart-btn">
           <el-icon :size="18"><ShoppingCart /></el-icon>
           购物车
-          <span class="mall-cart-badge" v-if="cartStore.count > 0">{{ cartStore.count }}</span>
+          <span class="mall-cart-badge" v-if="cartStore.count > 0">{{ cartStore.count > 99 ? '99+' : cartStore.count }}</span>
         </router-link>
       </div>
     </div>

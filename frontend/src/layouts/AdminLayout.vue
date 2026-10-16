@@ -109,6 +109,12 @@ onMounted(() => {
 
 const collapsed = ref(false)
 
+// 移动端适配：窄屏首次进入后台自动折叠侧栏为图标模式（复用桌面已有的折叠逻辑，
+// 用户仍可点顶栏按钮展开；>768px 的桌面行为完全不变）
+if (typeof window !== 'undefined' && window.innerWidth <= 768) {
+  collapsed.value = true
+}
+
 // 菜单按权限点声明：只展示当前账号有权访问的入口（超级管理员拥有全部权限，自然全显示）
 const menuGroups = [
   {
