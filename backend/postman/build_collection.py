@@ -207,8 +207,7 @@ setup_items.append(req(
          'pm.environment.set("smokeUser", "it" + ts);\n'
          'pm.environment.set("smokeEmail", "it" + ts + "@itest.com");'),
     test=(ASSERT_OK +
-          'pm.test("返回 token 与用户信息", () => { pm.expect(j.data.token).to.be.a("string").and.not.empty; pm.expect(j.data.user.id).to.be.a("number"); });\n'
-          'pm.environment.set("userId", String(j.data.user.id));'),
+          'pm.test("返回 token 与用户信息", () => { pm.expect(j.data.token).to.be.a("string").and.not.empty; pm.expect(j.data.user.id).to.be.a("number"); });'),
     noauth=True,
     desc="注册新用户。注意：注册返回的 token 未写 login:user 缓存，不能直接鉴权，需随后登录一次"
 ))
@@ -1128,7 +1127,7 @@ folders.append({
     "item": crud_items,
 })
 
-# ---------------- 11-订单履约 / 售后 / 个人资料 / 上传 / Agent 会话 ----------------
+# ---------------- 11-订单履约 / 售后 / 个人资料 / 上传 ----------------
 
 misc_items = []
 
@@ -1402,28 +1401,10 @@ misc_items.append(req(
     desc="删除刚建的一次性地址（自清理）"
 ))
 
-# —— Agent 会话 ——
-misc_items.append(req(
-    "G1 Agent 会话-保存", "POST", "/agent/session/save",
-    body={"sessionId": "it-session-{{userId}}", "userId": "{{userId}}",
-          "intent": "回归测试", "summary": "Postman 全量回归写入的会话摘要"},
-    test=(ASSERT_OK + 'pm.test("消息含「保存」", () => pm.expect(j.message).to.include("保存"));'),
-    noauth=True,
-    desc="保存 Agent 会话摘要（Redis 缓存 + MySQL 落库），Java 侧业务审计用"
-))
-
-misc_items.append(req(
-    "G2 Agent 会话-查询", "GET", "/agent/session/query",
-    query={"userId": "{{userId}}", "sessionId": "it-session-{{userId}}"},
-    test=(ASSERT_OK + 'pm.test("返回数组", () => pm.expect(j.data).to.be.an("array"));'),
-    noauth=True,
-    desc="按 userId + sessionId 查询会话历史"
-))
-
 folders.append({
-    "name": "11-订单履约/售后/个人资料/上传/Agent",
+    "name": "11-订单履约/售后/个人资料/上传",
     "description": "补齐剩余未覆盖端点：订单发货→确认收货→售后退货退款闭环（含撤销/审核/确认收货/重试与作废的状态守卫）、"
-                   "刷新token、强制改密、改昵称/改密码、头像与图片上传（multipart）、登录日志、地址改删、Agent 会话读写。",
+                   "刷新token、强制改密、改昵称/改密码、头像与图片上传（multipart）、登录日志、地址改删。",
     "item": misc_items,
 })
 
@@ -1503,8 +1484,8 @@ collection = {
             "PeakFlow 秒杀商城接口测试集合（手工精编，混合链路式）。\n\n"
             "组织方式：按业务链路分文件夹（00 前置准备 → 01 认证 → 02 商品 → 03 购物车 → "
             "04 地址 → 05 下单 → 06 支付资金闭环 → 07 退款资金闭环 → 08 秒杀闭环 → 09 管理端 → "
-            "10 管理端 CRUD 全覆盖 → 11 订单履约/售后/个人资料/上传/Agent）。\n\n"
-            "覆盖度：10 与 11 用于补齐原集合未覆盖的端点（增删改、上传、Agent 会话等），"
+            "10 管理端 CRUD 全覆盖 → 11 订单履约/售后/个人资料/上传）。\n\n"
+            "覆盖度：10 与 11 用于补齐原集合未覆盖的端点（增删改、上传等），"
             "使集合覆盖项目全部对外接口；这两组链路自带数据自清理（建了删/改了还原），可重复执行。\n\n"
             "核心域（认证/资金/秒杀）断言精确到业务码 + 消息 + data 字段 + 统一 Result 结构。\n\n"
             "变量传递：登录自动存 token，下单存 orderId，预支付存 outTradeNo，申请退款存 refundId，"
@@ -1531,7 +1512,6 @@ collection = {
         {"key": "productId", "value": "1", "type": "string"},
         {"key": "userToken", "value": "", "type": "string"},
         {"key": "adminToken", "value": "", "type": "string"},
-        {"key": "userId", "value": "", "type": "string"},
         {"key": "addressId", "value": "1", "type": "string"},
         {"key": "orderId", "value": "", "type": "string"},
         {"key": "orderNo", "value": "", "type": "string"},
@@ -1583,7 +1563,6 @@ env = {
         {"key": "productId", "value": "1", "enabled": True},
         {"key": "userToken", "value": "", "enabled": True},
         {"key": "adminToken", "value": "", "enabled": True},
-        {"key": "userId", "value": "", "enabled": True},
         {"key": "addressId", "value": "1", "enabled": True},
         {"key": "orderId", "value": "", "enabled": True},
         {"key": "orderNo", "value": "", "enabled": True},

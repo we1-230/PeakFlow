@@ -59,12 +59,12 @@ test/
 ```bash
 # ① 基础种子数据：清理脏数据 + 写入 10 分类 × 5 商品（每类 1 条秒杀商品）
 #    后端跑 test profile（peakflow_test 库 + Redis db1）
-python java后端/postman/seed_base_data.py --db peakflow_test --redis-db 1
+python backend/postman/seed_base_data.py --db peakflow_test --redis-db 1
 #    后端跑 dev profile（peakflow 库 + Redis db0）
-python java后端/postman/seed_base_data.py --db peakflow --redis-db 0
+python backend/postman/seed_base_data.py --db peakflow --redis-db 0
 
 # ② 夹具（重置管理员密码 + 秒杀库存 + 基线商品）
-python java后端/postman/setup_test_data.py --db peakflow --redis-db 0 --seckill-ids 5,10 --base-product-id 1
+python backend/postman/setup_test_data.py --db peakflow --redis-db 0 --seckill-ids 5,10 --base-product-id 1
 ```
 
 > ⚠️ **夹具库必须与后端当前 profile 一致**，否则回归会大面积失败：
@@ -114,6 +114,6 @@ python java后端/postman/setup_test_data.py --db peakflow --redis-db 0 --seckil
 
 ## 五、与后端约定的对应关系
 
-- 后端单元 + 集成测试：`java后端` 下 `mvn test`
-- 后端接口回归：`java后端/postman` 下 newman 跑 `PeakFlow-API.postman_collection.json`（项目对外端点共 75 个，集合覆盖其中 72 个；未覆盖的 3 个为 `/mcp/**` MCP 网关端点，由 `McpAuthInterceptor` 独立鉴权、不在本集合范围）
+- 后端单元 + 集成测试：`backend` 下 `mvn test`
+- 后端接口回归：`backend/postman` 下用 newman 跑 `PeakFlow-API.postman_collection.json`（13 个文件夹 / 123 请求，按业务链路组织，覆盖全部对外端点）
 - 前端回归：`npm run test:regression`（覆盖前端 `src/api.js` 暴露的全部接口，含覆盖率自查用例）

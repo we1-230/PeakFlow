@@ -50,7 +50,6 @@ public class SecurityConfig {
                    .antMatchers("/actuator/**").permitAll() // 监控端点：运维探活，免登录
                    .antMatchers("/seckill/list", "/seckill/detail/**").permitAll()
                    .antMatchers("/swagger-ui/**", "/v3/api-docs/**", "/doc.html", "/webjars/**").permitAll()
-                   .antMatchers("/agent/session/**").permitAll() // Agent 会话存储：Java 侧业务审计，供 Agent 调用
                     // ---- 支付相关（关键） ----
                    .antMatchers("/pay/notify", "/pay/return").permitAll()
                     // /refund/notify 是第三方退款结果回调，与 /pay/notify 同理：

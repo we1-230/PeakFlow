@@ -10,14 +10,14 @@
 
 | 文件 | 作用 |
 |---|---|
-| `PeakFlow-API.postman_collection.json` | 测试集合（13 个文件夹 / 125 个请求），由 `build_collection.py` 生成 |
+| `PeakFlow-API.postman_collection.json` | 测试集合（13 个文件夹 / 123 个请求），由 `build_collection.py` 生成 |
 | `env-test.postman_environment.json` | 测试环境变量（baseUrl / token / 各类业务 ID） |
 | `build_collection.py` | 集合生成器（改接口后改这里再重跑，别手改 JSON） |
 | `seed_base_data.py` | **基础种子数据预置**：清理验收脏数据（业务表 + 测试账号 + Redis 脏键）并写入 **10 个分类 × 5 条商品**（每类 1 条秒杀商品，共 40 普通 + 10 秒杀），商品名称/描述/详情/图片齐全，图片为互联网公开可商用真实实拍图（与品类匹配）。参数化 `--db` / `--redis-db`，默认 dev（peakflow + db0） |
 | `setup_test_data.py` | 测试夹具：重置管理员密码 + 秒杀库存 + 基线商品（DB 与 Redis 双重置）。支持 `--db` / `--redis-db` / `--seckill-ids` / `--base-product-id`，默认值对应种子目录（秒杀商品 5,10；基线商品 1）；dev 环境示例：`--db peakflow --redis-db 0 --seckill-ids 5,10 --base-product-id 1` |
 | `verify_db_redis.py` | Newman 跑完后做 DB/Redis 落库验证（"全面检查"） |
 | `newman-report.json` | Newman 每次运行的原始报告（失败详情看这里） |
-| `newman-report-regression.json` | 本轮全量回归报告（125 请求 / 782 断言；`/user/avatar`、`/upload/image` 两条上传用例需配置 OSS 凭证） |
+| `newman-report-regression.json` | 本轮全量回归报告（123 请求 / 768 断言；`/user/avatar`、`/upload/image` 两条上传用例需配置 OSS 凭证） |
 | `fixtures/test-avatar.png` | multipart 上传用例（`/user/avatar`、`/upload/image`）用的测试图片 |
 
 ---
@@ -30,13 +30,16 @@
 |---|---|---|
 | MySQL | 3306 | 系统服务 MySQL80（测试库 `peakflow_test`） |
 | Redis | 6380 | `D:\tools\redis\redis-server.exe --port 6380`（测试环境 db1） |
-| RocketMQ | 9876 / 10911 | `D:\rocketmq\rocketmq-all-4.9.7-bin-release\bin\mqnamesrv.cmd` + `mqbroker.cmd -n 127.0.0.1:9876`（JDK17 需用本仓库已改好的 runserver/runbroker 脚本） |
+| RocketMQ | 9876 / 10911 | 任选其一：Docker 容器 `plekflow-rmq-namesrv` + `plekflow-rmq-broker`；或本机 `D:\rocketmq\rocketmq-all-4.9.7-bin-release\bin\mqnamesrv.cmd` + `mqbroker.cmd -n 127.0.0.1:9876`（JDK17 需用本仓库已改好的 runserver/runbroker 脚本） |
 | 应用 | 8080 | `java -jar target/PeakFlow-1.0-SNAPSHOT.jar --spring.profiles.active=test` |
 
 ```bash
 # ①（推荐）先预置基础目录：清理脏数据 + 写入 10 分类 × 5 商品（含秒杀商品）
-python seed_base_data.py
+#    ⚠️ 脚本默认参数是 dev（peakflow + Redis db0）。本规范要求 App 以 test profile 启动，
+#       所以必须显式指定测试库，否则种子会灌进 dev 库，秒杀用例全部因「商品不存在」失败。
+python seed_base_data.py --db peakflow_test --redis-db 1
 # ② 夹具（重置管理员密码 + 秒杀库存，保证可重复执行）
+#    默认值已对应 test 环境，无需传参
 python setup_test_data.py
 ```
 
@@ -64,7 +67,7 @@ python verify_db_redis.py
 ## 三、分组与混合链路设计（不是"一个接口一个请求"）
 
 按**业务链路**分 13 个文件夹，每个文件夹是一条可独立跑的端到端链路，文件夹之间靠**环境变量**传递 ID。
-其中 00–09 是核心业务链路，10–11 是为**端点全覆盖**补齐的接口（管理端 CRUD、订单履约/售后、个人资料、上传、Agent 会话）。
+其中 00–09 是核心业务链路，10–11 是为**端点全覆盖**补齐的接口（管理端 CRUD、订单履约/售后、个人资料、上传）。
 
 | 文件夹 | 链路 | 请求数 |
 |---|---|---|
@@ -79,11 +82,11 @@ python verify_db_redis.py
 | 08-秒杀闭环（核心） | 预热→秒杀(存requestId)→轮询结果→一人一单重复被拒→参数校验 | 5 |
 | 09-管理端（RBAC） | 用户列表/订单列表/退款列表/仪表盘 + 普通用户越权403 | 5 |
 | 10-管理端 CRUD 全覆盖 | 分类 增/改/删 → 商品 增/查回填id/改/下架/上架/删 → 分类删 → 秒杀分类 → 秒杀商品 增/列表回填/改/删（活动期守卫） → 封号/解封/重置密码 + 越权403 | 22 |
-| 11-订单履约/售后/个人资料/上传/Agent | 下单→支付→发货→确认收货→售后退货退款（撤销/审核/确认收货/重试与作废状态守卫）→ 验证码/刷新token/改密/改昵称/头像与图片上传(multipart)/登录日志/地址改删/Agent会话读写 | 32 |
+| 11-订单履约/售后/个人资料/上传 | 下单→支付→发货→确认收货→售后退货退款（撤销/审核/确认收货/重试与作废状态守卫）→ 验证码/刷新token/改密/改昵称/头像与图片上传(multipart)/登录日志/地址改删 | 30 |
 | 12-模拟第三方（MockPay） | 收银台页面（GET，校验返回真实 HTML 而非 forward 字面量）→ 第三方退款入口（合法签名 + 不存在的原交易 → 拒绝） | 2 |
 
-> **覆盖度**：以 springdoc 导出的权威清单为准，项目**对外端点共 73 个**（可由 `OpenApiSpecExportTest` 输出到 `target/api-docs.json` 核对）。
-> 本集合**全覆盖这 73 个**。
+> **覆盖度**：以 springdoc 导出的权威清单为准，项目**对外端点共 71 个**（可由 `OpenApiSpecExportTest` 输出到 `target/api-docs.json` 核对）。
+> 本集合**全覆盖这 71 个**。
 > 10/11/12 三组自带数据自清理（建了删、改了还原），可重复执行。
 >
 > 唯一例外：秒杀商品在**活动期内**接口不允许删除（业务规则），

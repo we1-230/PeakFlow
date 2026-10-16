@@ -62,18 +62,6 @@ jwt:
   # token前缀
   token-prefix: Bearer
 
-# ==================== Agent 调用配置（需求：独立鉴权 + 写开关 + 限流） ====================
-agent:
-  # Agent 独立鉴权：专属 api-key，与普通用户 JWT 隔离。
-  # 请求头携带 X-Agent-Key 时优先走 Agent 鉴权（未配置或匹配则回退 JWT 校验）
-  api-key: ${AGENT_API_KEY:}
-  # 写操作全局开关：false 时 Agent 仅可调用查询类接口（读接口不受影响）
-  write-enabled: ${AGENT_WRITE_ENABLED:true}
-  # Agent 调用链路独立限流（QPS，防止 LLM 死循环疯狂调用压垮商城）
-  qps-limit: ${AGENT_QPS_LIMIT:20}
-
-
-
 # ==================== 模拟支付（MockPay）配置 ====================
 mock-pay:
   # 严禁硬编码：必须通过环境变量 MOCK_PAY_SECRET 注入（第三方验签密钥）
@@ -175,7 +163,6 @@ security:
     # 模拟第三方支付平台（MockPay）：扮演支付宝的角色，对外提供收银台与收款接口
     - /mock-pay/**
     - /mock-pay-cashier.html
-    - /agent/session/**
     - /test/**
     - /swagger-ui/**
     - /v3/api-docs/**

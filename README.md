@@ -2,7 +2,7 @@
 
 > 一个以**秒杀下单**为核心链路的电商全栈项目：购买权门闩 + Redis Lua 原子预扣 + RocketMQ 异步落库 + DB 唯一索引兜底，
 > 四层防线抗住瞬时高并发并杜绝超卖；另配齐订单状态机、支付资金闭环、售后退款状态机与 RBAC 权限体系。
-> 前后端分离，含 124 请求 / 779 断言的 Postman 全链路测试套件。
+> 前后端分离，含 123 请求 / 768 断言的 Postman 全链路测试套件。
 
 <p align="left">
   <img alt="Java" src="https://img.shields.io/badge/Java-17-007396?logo=openjdk&logoColor=white">
@@ -122,7 +122,7 @@ PeakFlow 是一个**前后端分离的秒杀商城主站**，包含三条完整�
 ```mermaid
 flowchart TB
     subgraph Client["客户端"]
-        B["浏览器 / Postman / LLM Agent"]
+        B["浏览器 / Postman"]
     end
 
     subgraph FE["前端 · Vue 3 + Vite :3000"]
@@ -131,7 +131,7 @@ flowchart TB
 
     subgraph BE["后端 · Spring Boot :8080"]
         F["TraceIdFilter<br/>JwtAuthenticationFilter"]
-        C["Controller 层<br/>14 个控制器 / 73 个端点"]
+        C["Controller 层<br/>13 个控制器 / 71 个端点"]
         S["Service 层<br/>订单/支付/退款/秒杀"]
         SEC["Spring Security<br/>RBAC @PreAuthorize"]
     end
@@ -145,7 +145,7 @@ flowchart TB
     MOCK["MockPay<br/>模拟支付宝"]
 
     B --> V
-    B -->|"直连 /api（Postman / Agent）"| F
+    B -->|"直连 /api（Postman）"| F
     V -->|"proxy /api → :8080"| F
     F --> SEC --> C --> S
     S --> MY
@@ -177,10 +177,10 @@ PeakFlow/
 ├── backend/                        # Spring Boot 后端
 │   ├── pom.xml
 │   ├── mvnw / mvnw.cmd             # Maven Wrapper
-│   ├── postman/                    # 接口测试套件（124 请求 / 779 断言）+ 权威测试规范
+│   ├── postman/                    # 接口测试套件（123 请求 / 768 断言）+ 权威测试规范
 │   └── src/
 │       ├── main/java/com/zhou/peakflow/
-│       │   ├── controller/         # 14 个控制器，共 70 个业务端点
+│       │   ├── controller/         # 13 个控制器，共 68 个业务端点
 │       │   ├── service/ + impl/    # 业务逻辑（含 TxService 拆分的独立事务边界）
 │       │   ├── mapper/             # MyBatis-Plus Mapper
 │       │   ├── pojo/ dto/ vo/      # 实体 / 入参 / 出参
@@ -318,7 +318,6 @@ npm run dev          # http://localhost:3000
 | 日志目录 | `./logs/dev` | `./logs/test` | `./logs/prod` |
 | 业务包日志级别 | DEBUG | INFO | INFO |
 | Swagger / Knife4j | 开启 | 开启 | **关闭** |
-| Agent 写操作 | 允许 | 允许 | **默认禁止**（只读兜底） |
 | CORS 允许来源 | `localhost:3000` | 同左 | **默认空**，必须显式配置 |
 | Actuator 暴露 | health/info/prometheus | 同左 | **仅 health**，不暴露细节 |
 | JDBC `useSSL` | 不拼接 | 不拼接 | `DB_USE_SSL`（默认 true） |
@@ -364,7 +363,8 @@ user ──< user_role >── role ──< role_permission >── permission
 
 ### 9.1 后端接口测试（Postman / Newman）
 
-`backend/postman/` 是**接口测试的唯一权威规范**：13 个文件夹 / 124 个请求 / 779 断言 / 0 失败。
+`backend/postman/` 是**接口测试的唯一权威规范**：13 个文件夹 / 123 个请求 / 768 断言
+（其中 4 条上传用例需配置阿里云 OSS 凭证，未配置时返回业务码 `3005`）。
 
 ```bash
 cd backend/postman
@@ -458,7 +458,7 @@ npm run test:ui           # 可视化界面
 
 | 文档 | 内容 |
 |---|---|
-| [`docs/API.md`](docs/API.md) | **接口文档**：通用约定、业务码表、状态机枚举、73 个端点总览、核心链路请求响应示例、权限对照 |
+| [`docs/API.md`](docs/API.md) | **接口文档**：通用约定、业务码表、状态机枚举、71 个端点总览、核心链路请求响应示例、权限对照 |
 | [`backend/postman/README.md`](backend/postman/README.md) | 接口测试权威规范：分组设计、断言标准、变量传递、7 个已修复缺陷复盘 |
 | [`deploy/mysql/README.md`](deploy/mysql/README.md) | 数据库初始化：五层文件切分、演示/生产两场景、生产账号授权三步法 |
 | [`.env.example`](.env.example) | 环境变量模板：32 项变量按域分组，含必填性与生产注意事项 |
@@ -471,16 +471,15 @@ npm run test:ui           # 可视化界面
 
 | 事项 | 说明 |
 |---|---|
-| `/agent/session/**` 匿名放行 | `SecurityConfig` 中该路径 `permitAll`，Agent 会话数据可被匿名读写，应改为 Agent 密钥校验 |
-| `/mcp/**` 死配置 | MCP 网关（`mcp` 包）已移除，但 `SecurityConfig` 中仍保留 `.antMatchers("/mcp/**").permitAll()` |
-| Agent 会话残留文件 | `AgentSessionController`、`SaveSessionDto`、`McpAuditLogMapper`、`SessionSummaryMapper`、`McpAuditLog`、`SessionSummary` 仍存在（彼此自洽故可编译） |
 | 演示密码明文散落 | `04-demo-account.sql`、`deploy/mysql/README.md`、`postman/README.md` 等多处含演示账号明文密码（仅演示用，生产不加载该 SQL） |
 | `seed_base_data.py` 硬编码密码 | 本地开发脚本内含本地库密码常量，建议改为读环境变量 |
-| Newman 报告体积 | `newman-report*.json` 约 4.5 MB，应加入 `.gitignore` 而非入库 |
 | 中间件容器名 | Docker 容器仍为 `plekflow-redis` / `plekflow-rmq-*`（历史名称，不影响功能） |
 
-> 项目**尚未**包含：`Dockerfile`、`docker-compose.yml`、`nginx.conf`、`.gitignore`。
-> 部署阶段的文件不在本仓库当前范围内。
+> 项目**尚未**包含：`Dockerfile`、`docker-compose.yml`、`nginx.conf`。
+> 部署阶段的文件不在本仓库当前范围内。（`.gitignore` 与 `.gitattributes` 已就位。）
+>
+> 已处置：早期版本遗留的 `/agent/session/**` 匿名放行与一组从未被代码读取的
+> `agent.*` 配置，已连同 Agent 会话模块、Postman 用例与 `session_summary` 表一并移除。
 
 ---
 

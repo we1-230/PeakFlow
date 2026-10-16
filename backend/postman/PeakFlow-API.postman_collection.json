@@ -89,11 +89,6 @@
       "type": "string"
     },
     {
-      "key": "userId",
-      "value": "",
-      "type": "string"
-    },
-    {
       "key": "addressId",
       "value": "1",
       "type": "string"
@@ -325,8 +320,7 @@
                   "pm.test(\"业务码 = 200\", () => pm.expect(j.code).to.eql(200));",
                   "pm.test(\"message 非空\", () => pm.expect(j.message).to.be.a(\"string\").and.not.empty);",
                   "pm.test(\"data 字段存在\", () => pm.expect(j).to.have.property(\"data\"));",
-                  "pm.test(\"返回 token 与用户信息\", () => { pm.expect(j.data.token).to.be.a(\"string\").and.not.empty; pm.expect(j.data.user.id).to.be.a(\"number\"); });",
-                  "pm.environment.set(\"userId\", String(j.data.user.id));"
+                  "pm.test(\"返回 token 与用户信息\", () => { pm.expect(j.data.token).to.be.a(\"string\").and.not.empty; pm.expect(j.data.user.id).to.be.a(\"number\"); });"
                 ]
               }
             }
@@ -5229,8 +5223,8 @@
       ]
     },
     {
-      "name": "11-订单履约/售后/个人资料/上传/Agent",
-      "description": "补齐剩余未覆盖端点：订单发货→确认收货→售后退货退款闭环（含撤销/审核/确认收货/重试与作废的状态守卫）、刷新token、强制改密、改昵称/改密码、头像与图片上传（multipart）、登录日志、地址改删、Agent 会话读写。",
+      "name": "11-订单履约/售后/个人资料/上传",
+      "description": "补齐剩余未覆盖端点：订单发货→确认收货→售后退货退款闭环（含撤销/审核/确认收货/重试与作废的状态守卫）、刷新token、强制改密、改昵称/改密码、头像与图片上传（multipart）、登录日志、地址改删。",
       "item": [
         {
           "name": "F1 下单（履约用订单）",
@@ -6873,127 +6867,6 @@
                   "pm.test(\"message 非空\", () => pm.expect(j.message).to.be.a(\"string\").and.not.empty);",
                   "pm.test(\"data 字段存在\", () => pm.expect(j).to.have.property(\"data\"));",
                   "pm.test(\"消息含「成功」\", () => pm.expect(j.message).to.include(\"成功\"));"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "G1 Agent 会话-保存",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json",
-                "disabled": false
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/agent/session/save",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "agent",
-                "session",
-                "save"
-              ]
-            },
-            "description": "保存 Agent 会话摘要（Redis 缓存 + MySQL 落库），Java 侧业务审计用",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"sessionId\": \"it-session-{{userId}}\",\n  \"userId\": \"{{userId}}\",\n  \"intent\": \"回归测试\",\n  \"summary\": \"Postman 全量回归写入的会话摘要\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": [],
-          "event": [
-            {
-              "listen": "prerequest",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.request.headers.remove(\"Authorization\");"
-                ]
-              }
-            },
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
-                  "const j = pm.response.json();",
-                  "pm.test(\"业务码 = 200\", () => pm.expect(j.code).to.eql(200));",
-                  "pm.test(\"message 非空\", () => pm.expect(j.message).to.be.a(\"string\").and.not.empty);",
-                  "pm.test(\"data 字段存在\", () => pm.expect(j).to.have.property(\"data\"));",
-                  "pm.test(\"消息含「保存」\", () => pm.expect(j.message).to.include(\"保存\"));"
-                ]
-              }
-            }
-          ]
-        },
-        {
-          "name": "G2 Agent 会话-查询",
-          "request": {
-            "method": "GET",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json",
-                "disabled": false
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/agent/session/query",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "agent",
-                "session",
-                "query"
-              ],
-              "query": [
-                {
-                  "key": "userId",
-                  "value": "{{userId}}"
-                },
-                {
-                  "key": "sessionId",
-                  "value": "it-session-{{userId}}"
-                }
-              ]
-            },
-            "description": "按 userId + sessionId 查询会话历史"
-          },
-          "response": [],
-          "event": [
-            {
-              "listen": "prerequest",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.request.headers.remove(\"Authorization\");"
-                ]
-              }
-            },
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
-                  "const j = pm.response.json();",
-                  "pm.test(\"业务码 = 200\", () => pm.expect(j.code).to.eql(200));",
-                  "pm.test(\"message 非空\", () => pm.expect(j.message).to.be.a(\"string\").and.not.empty);",
-                  "pm.test(\"data 字段存在\", () => pm.expect(j).to.have.property(\"data\"));",
-                  "pm.test(\"返回数组\", () => pm.expect(j.data).to.be.an(\"array\"));"
                 ]
               }
             }

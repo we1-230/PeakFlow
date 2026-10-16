@@ -28,7 +28,7 @@
 | 后端地址（dev） | `http://localhost:8080` |
 | 前端访问路径 | 前端 `axios` 的 `baseURL = /api`，dev 下 Vite 将 `/api` **重写剥掉前缀**后代理到 `:8080`。**后端路由本身不含 `/api`**（如前端请求 `/api/auth/login` 实际打到后端 `/auth/login`） |
 | HTTP 状态码 | **业务响应恒为 200**，成功与否由响应体中的 `code` 区分（`/pay/notify`、`/refund/notify` 例外，见下） |
-| 认证 | 请求头 `Authorization: Bearer <token>`；Agent 可用 `X-Agent-Key: <key>` |
+| 认证 | 请求头 `Authorization: Bearer <token>` |
 | 链路追踪 | 响应头固定回传 `X-Trace-Id`，排障时凭此串起全链路日志 |
 | 日期时间格式 | `yyyy-MM-dd HH:mm:ss`，时区 `GMT+8` |
 | 金额 | `BigDecimal`，单位为元 |
@@ -62,12 +62,11 @@
 
 ## 二、认证方式
 
-项目支持两条并行的鉴权通道，**优先判定 Agent 通道**：
+全站采用**单一鉴权通道：无状态 JWT**。
 
 | 通道 | 凭证 | 适用对象 | 说明 |
 |---|---|---|---|
 | 用户 JWT | `Authorization: Bearer <token>` | 商城用户、管理员 | 登录/注册/刷新接口签发；无状态校验 + Redis 黑名单 |
-| Agent 密钥 | `X-Agent-Key: <api-key>` | LLM / 智能体 | 与用户 JWT 完全隔离；未配置或匹配失败时回退 JWT 校验 |
 
 **权限两层校验**
 
@@ -367,7 +366,7 @@ stateDiagram-v2
 
 ## 七、端点总览
 
-**共 73 个端点**：14 个业务控制器 70 个 + MockPay 模拟第三方 3 个。
+**共 71 个端点**：13 个业务控制器 68 个 + MockPay 模拟第三方 3 个。
 
 图例：🔓 = 免登录；🔒 = 需登录；🔑 = 需指定权限点。
 
@@ -502,14 +501,7 @@ stateDiagram-v2
 |---|---|---|---|
 | POST | `/upload/image` | 上传图片，返回 URL | 🔑 `file:upload` |
 
-### 7.13 Agent 会话 `/agent/session`（2）
-
-| 方法 | 路径 | 说明 | 鉴权 |
-|---|---|---|---|
-| POST | `/agent/session/save` | 保存会话记录（Redis 缓存 + MySQL 全量） | ⚠️ 当前为匿名放行，见第十二节 |
-| GET | `/agent/session/query` | 按 `sessionId` 查询历史会话摘要 | ⚠️ 同上 |
-
-### 7.14 模拟第三方 `/mock-pay`（3）
+### 7.13 模拟第三方 `/mock-pay`（3）
 
 | 方法 | 路径 | 说明 | Content-Type |
 |---|---|---|---|
@@ -1241,7 +1233,6 @@ MockPay 在项目内**扮演支付宝的角色**，让资金闭环无需真实�
 | `/pay/notify`、`/pay/return` | 第三方回调，靠验签保证安全 |
 | `/refund/notify` | 同上 |
 | `/mock-pay/**`、`/mock-pay-cashier.html` | 模拟第三方平台，本身就是对外服务方 |
-| `/agent/session/**` | ⚠️ **当前为匿名放行，存在安全风险**，见下 |
 | `/swagger-ui/**`、`/v3/api-docs/**`、`/doc.html`、`/webjars/**` | 接口文档（prod 已整体关闭） |
 | `/actuator/info`、`/actuator/health` | 运维探活 |
 | `/`、`/index.html`、`/static/**`、`/*.html`、`/*.js`、`/*.css`、`/images/**`、`/favicon.ico` | 静态资源 |
@@ -1254,19 +1245,19 @@ MockPay 在项目内**扮演支付宝的角色**，让资金闭环无需真实�
 | `POST /auth/changePassword` | 按用户名强制改密，被单独声明为 `authenticated()`，**必须携带有效 JWT** |
 | `GET /actuator/prometheus` | 仅 `dev` / `test` 暴露，`prod` 只留 `health` 且 `show-details: never` |
 
-### 已知安全问题（待修复）
+### 安全走查结论
 
-| 问题 | 现状 | 建议 |
-|---|---|---|
-| `/agent/session/**` 匿名可读写 | Agent 会话摘要数据可被任何人读写 | 改为要求 `X-Agent-Key` 校验，或移出白名单 |
-| `/mcp/**` 死配置 | MCP 网关（`mcp` 包）已移除，`SecurityConfig` 中仍保留该放行规则 | 删除该行 |
-| Agent 会话残留类 | `AgentSessionController`、`SaveSessionDto`、`McpAuditLog(Mapper)`、`SessionSummary(Mapper)` 仍在 | 确认是否保留该能力后清理 |
+历史版本存在 `/agent/session/**` 匿名放行（任何人可读写任意用户的会话摘要），
+并残留一组从未被任何代码读取的 `agent.*` 配置（`api-key` / `write-enabled` / `qps-limit`
+在 `application.yml` 中承诺了「X-Agent-Key 独立鉴权」，但实现早已缺失）。
+
+该能力与配套配置、测试用例、数据库表**已整体移除**，当前白名单中不再包含任何 Agent 相关路径。
 
 ---
 
 ## 附：接口测试套件
 
-`backend/postman/` 提供与本文件一一对应的可执行测试套件：**13 个文件夹 / 124 请求 / 779 断言 / 0 失败**。
+`backend/postman/` 提供与本文件一一对应的可执行测试套件：**13 个文件夹 / 123 请求 / 768 断言**（其中 4 条上传用例需配置阿里云 OSS 凭证，未配置时返回业务码 `3005`）。
 
 ```bash
 cd backend/postman

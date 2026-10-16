@@ -5,7 +5,7 @@
 -- 用途：演示环境与生产环境【共用】。只建表，不含任何业务数据。
 -- 加载：docker-compose 挂载到 MySQL 容器的 /docker-entrypoint-initdb.d/，
 --       数据卷首次初始化时自动执行（卷已存在则不会重复执行）。
--- 表数：18 张 = 业务表 15 + Agent 扩展 3
+-- 表数：17 张 = 业务表 15 + 扩展表 2（daily_task_plan、user_biz_memory）
 -- 生成：mysqldump --no-data peakflow
 -- ============================================================================
 
@@ -354,21 +354,6 @@ CREATE TABLE `role_permission` (
   CONSTRAINT `fk_role_permission_permission_id` FOREIGN KEY (`permission_id`) REFERENCES `permission` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_role_permission_role_id` FOREIGN KEY (`role_id`) REFERENCES `role` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB AUTO_INCREMENT=30 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='角色权限关联表';
-/*!40101 SET character_set_client = @saved_cs_client */;
-DROP TABLE IF EXISTS `session_summary`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `session_summary` (
-  `id` bigint NOT NULL AUTO_INCREMENT,
-  `session_id` varchar(64) NOT NULL COMMENT '会话ID',
-  `user_id` bigint NOT NULL COMMENT '用户ID',
-  `intent` varchar(100) DEFAULT NULL COMMENT '对话意图',
-  `summary` varchar(200) DEFAULT NULL COMMENT 'LLM提炼的对话摘要',
-  `created_at` datetime DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  KEY `idx_session` (`session_id`),
-  KEY `idx_user_time` (`user_id`,`created_at`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='L2短期对话摘要表';
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `user`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
