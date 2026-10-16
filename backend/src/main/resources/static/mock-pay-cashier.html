@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MockPay 收银台 - 模拟支付平台</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+            background: #f5f6f8;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #1f2329;
+        }
+        .cashier {
+            width: 420px;
+            background: #fff;
+            border-radius: 12px;
+            box-shadow: 0 2px 16px rgba(0, 0, 0, .08);
+            overflow: hidden;
+        }
+        .cashier-header {
+            padding: 20px 24px;
+            border-bottom: 1px solid #eef0f3;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .logo {
+            width: 28px; height: 28px; border-radius: 6px;
+            background: #1677ff; color: #fff;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 13px; font-weight: 500;
+        }
+        .cashier-header h1 { font-size: 15px; font-weight: 500; }
+        .cashier-header .tag {
+            margin-left: auto; font-size: 12px; color: #8a9099;
+            border: 1px solid #e3e6eb; border-radius: 4px; padding: 2px 6px;
+        }
+        .cashier-body { padding: 24px; }
+        .amount-label { font-size: 13px; color: #8a9099; }
+        .amount {
+            font-size: 32px; font-weight: 500; margin: 6px 0 20px;
+            letter-spacing: -0.5px;
+        }
+        .amount .unit { font-size: 18px; margin-right: 2px; }
+        .row {
+            display: flex; justify-content: space-between;
+            font-size: 13px; padding: 9px 0;
+            border-bottom: 1px dashed #eef0f3;
+        }
+        .row:last-of-type { border-bottom: none; }
+        .row .k { color: #8a9099; }
+        .row .v { color: #1f2329; max-width: 250px; word-break: break-all; text-align: right; }
+        .btn {
+            width: 100%; margin-top: 22px; padding: 12px;
+            border: none; border-radius: 8px; background: #1677ff;
+            color: #fff; font-size: 15px; cursor: pointer;
+            font-family: inherit;
+        }
+        .btn:hover { background: #0e5fd8; }
+        .btn:disabled { background: #b8c4d4; cursor: not-allowed; }
+        .btn-ghost {
+            background: #fff; color: #1f2329; border: 1px solid #dcdfe6;
+            margin-top: 10px;
+        }
+        .btn-ghost:hover { background: #f5f6f8; }
+        .tip { font-size: 12px; color: #8a9099; margin-top: 16px; line-height: 1.6; }
+        .status { margin-top: 18px; font-size: 13px; text-align: center; min-height: 20px; }
+        .status.ok { color: #0a8f4d; }
+        .status.err { color: #d93026; }
+        .done { text-align: center; padding: 8px 0 4px; }
+        .done .icon {
+            width: 46px; height: 46px; border-radius: 50%;
+            background: #e8f7ef; color: #0a8f4d;
+            display: flex; align-items: center; justify-content: center;
+            margin: 0 auto 12px; font-size: 22px;
+        }
+        .done h2 { font-size: 16px; font-weight: 500; margin-bottom: 6px; }
+        .done p { font-size: 13px; color: #8a9099; }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+<div class="cashier">
+    <div class="cashier-header">
+        <div class="logo">M</div>
+        <h1>MockPay 收银台</h1>
+        <span class="tag">模拟支付环境</span>
+    </div>
+
+    <div class="cashier-body">
+        <div id="payPanel">
+            <div class="amount-label">应付金额</div>
+            <div class="amount"><span class="unit">¥</span><span id="amount">--</span></div>
+
+            <div class="row"><span class="k">商户订单号</span><span class="v" id="outTradeNo">--</span></div>
+            <div class="row"><span class="k">收款方</span><span class="v">PeakFlow 奥宇甄选商城</span></div>
+            <div class="row"><span class="k">支付渠道</span><span class="v">MockPay（模拟）</span></div>
+
+            <button class="btn" id="payBtn">确认支付</button>
+            <button class="btn btn-ghost" id="cancelBtn">取消支付</button>
+
+            <div class="status" id="status"></div>
+
+            <div class="tip">
+                当前为模拟支付环境，点击「确认支付」后：<br>
+                MockPay 会生成交易号并<b>异步回调</b>商城接口完成入账，不会产生任何真实资金流水。
+            </div>
+        </div>
+
+        <div id="donePanel" class="hidden">
+            <div class="done">
+                <div class="icon">✓</div>
+                <h2>支付成功</h2>
+                <p>商城已收到支付结果通知</p>
+            </div>
+            <button class="btn" id="backBtn">返回商城订单页</button>
+            <div class="status ok" id="doneStatus"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // 「返回商城」的目标地址：由后端从配置 mock-pay.return-url 注入（默认指向 Vue 商城前端，不再跳后端静态演示页）
+    window.__MALL_RETURN_URL__ = "__INJECT_MALL_RETURN_URL__";
+    // ------------------------------------------------------------------
+    // 从 URL 上取出商户下单时带过来的参数（对应 PayServiceImpl#buildPrepayVo 拼的链接）
+    // ------------------------------------------------------------------
+    var params = new URLSearchParams(window.location.search);
+    var payload = {
+        out_trade_no: params.get('out_trade_no'),
+        amount: params.get('amount'),
+        timestamp: params.get('timestamp'),
+        sign: params.get('sign')
+    };
+
+    document.getElementById('amount').textContent =
+        payload.amount === null ? '--' : Number(payload.amount).toFixed(2);
+    document.getElementById('outTradeNo').textContent =
+        payload.out_trade_no === null ? '--' : payload.out_trade_no;
+
+    var payBtn = document.getElementById('payBtn');
+    var statusEl = document.getElementById('status');
+
+    // ------------------------------------------------------------------
+    // 点击「确认支付」→ 调 MockPay 的收款接口
+    // 注意：这里只是把"用户已付款"的意愿告诉第三方，
+    // 订单状态最终由第三方异步回调商城接口来决定，本页面不直接改任何订单。
+    // ------------------------------------------------------------------
+    payBtn.addEventListener('click', function () {
+        if (!payload.out_trade_no) {
+            statusEl.className = 'status err';
+            statusEl.textContent = '缺少商户订单号，无法支付';
+            return;
+        }
+        payBtn.disabled = true;
+        statusEl.className = 'status';
+        statusEl.textContent = '正在处理支付…';
+
+        fetch('/mock-pay/pay', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        })
+            .then(function (r) { return r.json(); })
+            .then(function (res) {
+                if (res && res.success) {
+                    // 支付成功：切到"已完成"面板
+                    document.getElementById('payPanel').classList.add('hidden');
+                    document.getElementById('donePanel').classList.remove('hidden');
+                    document.getElementById('doneStatus').textContent =
+                        '交易完成，可返回订单页刷新查看「已付款」状态';
+                } else {
+                    payBtn.disabled = false;
+                    statusEl.className = 'status err';
+                    statusEl.textContent = (res && res.message) || '支付失败，请重试';
+                }
+            })
+            .catch(function (e) {
+                payBtn.disabled = false;
+                statusEl.className = 'status err';
+                statusEl.textContent = '网络异常：' + e.message;
+            });
+    });
+
+    document.getElementById('cancelBtn').addEventListener('click', function () {
+        statusEl.className = 'status';
+        statusEl.textContent = '已取消支付，可返回商城重新发起';
+    });
+
+    document.getElementById('backBtn').addEventListener('click', function () {
+        // 跳回 Vue 商城的订单页（地址由后端配置注入），用户可在那里刷新看到「已付款」
+        window.location.href = window.__MALL_RETURN_URL__ || '/';
+    });
+</script>
+</body>
+</html>

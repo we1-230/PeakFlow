@@ -1,0 +1,229 @@
+#spring核心公共配置
+spring:
+  main:
+    allow-circular-references: true
+  # 文件上传大小限制
+  servlet:
+    multipart:
+      max-file-size: 2MB
+      max-request-size: 2MB
+  # 数据库连接池配置
+  datasource:
+    hikari:
+      maximum-pool-size: 50
+      minimum-idle: 10
+
+  #springmvc配置
+  mvc:
+    throw-exception-if-no-handler-found: true
+  web:
+    resources:
+      add-mappings: false
+  # 前后端日期转换格式
+  jackson:
+    date-format: yyyy-MM-dd HH:mm:ss
+    time-zone: GMT+8
+
+  profiles:
+    # 运行环境选择：dev / test / prod（可用环境变量 SPRING_PROFILES_ACTIVE 覆盖，或启动参数 --spring.profiles.active=prod）
+    active: ${SPRING_PROFILES_ACTIVE}
+
+#mybatis-plus:
+mybatis-plus:
+  # 指定Mapper XML文件的位置：扫描classpath下mapper文件夹下的所有.xml文件
+  mapper-locations: classpath:mapper/*.xml
+  # 实体类的包别名：指定实体类所在包，在XML中可以直接用类名（无需全限定名）
+  type-aliases-package: com.zhou.peakflow.pojo
+  configuration:
+
+    # 慢SQL阈值（毫秒）
+    slow-sql-threshold: 1000
+    # 驼峰命名转换
+    map-underscore-to-camel-case: true
+  global-config:
+    db-config:
+      # 自增主键
+      id-type: auto
+      # 逻辑删除字段
+      logic-delete-field: deleted
+      # 逻辑已删除值
+      logic-delete-value: 1
+      # 逻辑未删除值
+      logic-not-delete-value: 0
+
+#JWT配置
+jwt:
+  # 严禁硬编码：必须通过环境变量 JWT_SECRET 注入（长度 ≥ 32 字节的高强度随机串）
+  secret: ${JWT_SECRET:}
+  # 设置过期时间24小时
+  expiration: ${JWT_EXPIRATION:86400}
+  # token请求头字段名
+  header: Authorization
+  # token前缀
+  token-prefix: Bearer
+
+# ==================== Agent 调用配置（需求：独立鉴权 + 写开关 + 限流） ====================
+agent:
+  # Agent 独立鉴权：专属 api-key，与普通用户 JWT 隔离。
+  # 请求头携带 X-Agent-Key 时优先走 Agent 鉴权（未配置或匹配则回退 JWT 校验）
+  api-key: ${AGENT_API_KEY:}
+  # 写操作全局开关：false 时 Agent 仅可调用查询类接口（读接口不受影响）
+  write-enabled: ${AGENT_WRITE_ENABLED:true}
+  # Agent 调用链路独立限流（QPS，防止 LLM 死循环疯狂调用压垮商城）
+  qps-limit: ${AGENT_QPS_LIMIT:20}
+
+
+
+# ==================== 模拟支付（MockPay）配置 ====================
+mock-pay:
+  # 严禁硬编码：必须通过环境变量 MOCK_PAY_SECRET 注入（第三方验签密钥）
+  secret-key: ${MOCK_PAY_SECRET:}
+  # 支付渠道标识，会写入 pay_record.pay_channel
+  channel: MOCK_PAY
+  # 收银台地址：发起支付时返回给前端，由前端跳转（指向 MockPay 的收银台）
+  cashier-url: ${MOCK_PAY_CASHIER_URL:http://127.0.0.1:8080/mock-pay/cashier}
+  # 商户异步回调地址：MockPay 收到付款后回调这里完成入账（真实场景是自己的公网 HTTPS 域名）
+  notify-url: ${MOCK_PAY_NOTIFY_URL:http://127.0.0.1:8080/pay/notify}
+  # 商户同步跳转地址：用户付款后浏览器跳回这里（仅展示，不改订单状态）
+  # 指向 Vue 商城前端，dev 默认 localhost:3000 的订单页
+  return-url: ${MOCK_PAY_RETURN_URL:http://localhost:3000/orders}
+  # 第三方退款接口地址（商户 → MockPay，发起退款时调用；对应真实世界的「支付宝退款接口」）
+  refund-url: ${MOCK_PAY_REFUND_URL:http://127.0.0.1:8080/mock-pay/refund}
+  # 商户侧退款结果回调地址（发起退款时作为参数传给第三方，由第三方回推退款最终结果）
+  refund-notify-url: ${MOCK_PAY_REFUND_NOTIFY_URL:http://127.0.0.1:8080/refund/notify}
+  # 模拟回调失败概率（0-100，默认 0）。调成 100 可用来验证"回调失败时订单不会被误改成已付款"
+  fail-rate: 0
+  # 模拟"第三方退款失败"概率（0-100，默认 0）。调成 100 可稳定复现「退款失败 → 管理员重试」分支
+  refund-fail-rate: 0
+
+
+# ================== 退款策略（业务规则配置化，改规则不用改代码） ==================
+refund:
+  # 小额自动审核阈值：退款金额 <= 该值时系统自动审核通过，不占用人工客服
+  # 设为 0 表示关闭自动审核（默认），所有退款申请都必须人工审核
+  auto-audit-amount: 0
+  # 已完成订单的可退款窗口（天）：对应电商常见的「确认收货后 15 天内可申请售后」
+  # 已付款 / 已发货的订单不受此限制，随时可退
+  window-days: 15
+  # 用户退款原因最大长度
+  max-reason-length: 200
+  # 管理员审核意见最大长度
+  max-remark-length: 200
+
+  # ===== 中间态超时收敛（防止退款单永久卡死）=====
+  # 进入「退款中」后至少等多久才允许重试（分钟）：既防手抖重复发，也给自动重试限频
+  retry-delay-minutes: 30
+  # 「退款中」从申请算起超过多少分钟就不再自动重试、只告警（交给人工按重试/作废处理）
+  auto-retry-max-minutes: 360
+  # 「待审核」超过多少天自动驳回（否则一直占着"一个订单只能有一条未完结退款单"的名额）
+  applying-timeout-days: 7
+  # 「待用户退货」超过多少天自动作废（用户不寄回时释放对订单的占用）
+  wait-return-timeout-days: 30
+
+# ==========================================================================================
+# 下单风控（防恶意下单占库存）
+#
+# 普通商品是"下单即锁库存、超时不付款就释放"，恶意用户可以反复下单把库存锁死。
+# 这里限制的是「同时持有的待付款订单数」而不是「创建频率」——
+# 频率能被"等一会儿再来"绕过，而状态配额绕不过去。
+# 详见 OrderRiskProperties。
+# ==========================================================================================
+order-risk:
+  # 单用户同时可持有的「待付款」订单数上限。支付/取消/超时后配额自动还回，对正常用户无感
+  max-unpaid-orders: 5
+
+  # 风控窗口（天）：统计该用户近 N 天内"下单后从未支付、被超时关单"的次数
+  abandon-window-days: 7
+  # 窗口内每累计 N 次超时未支付，配额收紧 1 笔（只算超时关单，用户主动取消不算）
+  abandon-per-penalty: 5
+  # 配额最多收紧几笔（防止把用户锁到完全无法下单）
+  max-quota-penalty: 4
+  # 配额下限：再差也保留 1 笔，真正的封禁应当走封号流程
+  min-unpaid-quota: 1
+
+
+#阿里云OSS配置
+aliyun:
+  oss:
+    endpoint: ${OSS_ENDPOINT:oss-cn-beijing.aliyuncs.com}
+    # 严禁硬编码：AccessKey 属于凭证，必须由环境变量注入
+    access-key-id: ${OSS_ACCESS_KEY_ID:}
+    access-key-secret: ${OSS_ACCESS_KEY_SECRET:}
+    bucket-name: ${OSS_BUCKET:peakflow}
+    region: ${OSS_REGION:cn-beijing}
+
+# 登录白名单
+security:
+  white-list:
+    - /auth/login
+    - /auth/register
+    - /auth/image
+    # 注意：/auth/changePassword（按用户名强制改密）不在白名单内，
+    # 必须携带有效 JWT —— 它是"重置密码后的强制改密"入口，不能对外匿名开放。
+    - /product/page
+    - /product/detail/**
+    - /category/list
+    - /seckill/list
+    - /seckill/detail/**
+    # ===== 支付相关（关键）=====
+    # 第三方支付回调：由对方服务器发起，不可能携带 JWT，安全性靠签名验签保证，必须放行
+    - /pay/notify
+    # 用户付款后浏览器同步跳转的展示页
+    - /pay/return
+    # 第三方退款结果回调：与 /pay/notify 同理，免登录 + 验签保证安全
+    - /refund/notify
+    # 模拟第三方支付平台（MockPay）：扮演支付宝的角色，对外提供收银台与收款接口
+    - /mock-pay/**
+    - /mock-pay-cashier.html
+    - /agent/session/**
+    - /test/**
+    - /swagger-ui/**
+    - /v3/api-docs/**
+    - /doc.html
+    - /webjars/**
+    - /error
+    - /actuator/info
+    - /actuator/health
+    # 后端静态资源（MockPay 收银台等）免登录；商城页面走 Vue 前端工程（localhost:3000）
+    - /
+    - /static/**
+    - /favicon.ico
+    - /*.html
+    - /*.js
+    - /*.css
+    - /images/**
+
+cors:
+  # 允许的前端来源（逗号分隔）。生产环境必须通过环境变量 CORS_ALLOWED_ORIGINS 收紧到真实域名。
+  allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://127.0.0.1:3000}
+
+# 线程池配置（可动态调整，无需改代码）
+threadpool:
+  async:
+    core-pool-size: 20        # 核心线程数
+    max-pool-size: 50         # 最大线程数（应对突发流量）
+    queue-capacity: 5000      # 队列容量
+    keep-alive-seconds: 60
+    thread-name-prefix: "async-task-"
+
+server:
+  port: 8080
+  tomcat:
+    threads:
+      max: 200          # 最大线程数
+      min-spare: 20     # 最小空闲线程
+    accept-count: 100  # 等待队列长度
+    connection-timeout: 5000  # 连接超时时间
+
+cpu:
+  core: 8
+
+# 开启 Actuator 指标暴露
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus  # 暴露 prometheus 接口
+  metrics:
+    enable:
+      hikaricp: true  # 开启 HikariCP 指标采集（默认就是开启）

@@ -1,0 +1,51 @@
+# ===================== 测试环境（test）=====================
+# 数据库：peakflow_test（测试库）  Redis：同实例 db1
+spring:
+  #redis配置（同一 Redis 实例，测试环境独立逻辑库 db1）
+  redis:
+    host: ${REDIS_HOST:127.0.0.1}
+    port: ${REDIS_PORT:6380}
+    database: ${REDIS_DATABASE:1}
+    # 与 dev 同口径：必须显式配超时，否则退回 Lettuce 默认的 60 秒
+    # （stringRedisTemplate 是同步 API，会阻塞线程；Redis 挂掉会把整个应用拖死）
+    timeout: 2000ms
+    connect-timeout: 1000ms
+    lettuce:
+      pool:
+        max-active: 100
+        max-idle: 50
+        min-idle: 20
+        max-wait: 3000ms
+      shutdown-timeout: 100ms
+
+  #数据库（凭证一律走环境变量，禁止硬编码）
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://${DB_HOST:127.0.0.1}:${DB_PORT:3306}/${DB_NAME:peakflow_test}?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai
+    username: ${DB_USERNAME:}
+    password: ${DB_PASSWORD:}
+    hikari:
+      maximum-pool-size: 50
+      minimum-idle: 10
+      connection-timeout: 3000
+      idle-timeout: 600000 # 10分钟空闲连接销毁
+      max-lifetime: 1800000
+      validation-timeout: 2000
+      leak-detection-threshold: 5000
+
+# 日志：测试环境独立目录 ./logs/test
+logging:
+  file:
+    path: ${LOG_PATH:./logs/test}
+  level:
+    root: ${LOG_LEVEL_ROOT:INFO}
+    com.zhou.peakflow: ${LOG_LEVEL_APP:INFO}
+
+
+rocketmq:
+  name-server: ${ROCKETMQ_NAMESRV_ADDR:127.0.0.1:9876}
+  producer:
+    group: ${ROCKETMQ_PRODUCER_GROUP:my-producer-group}
+  consumer:
+    consume-thread-min: 20
+    consume-thread-max: 50

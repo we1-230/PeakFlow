@@ -1,0 +1,57 @@
+# ===================== 开发环境（dev）=====================
+# 数据库：peakflow（开发库）  Redis：同实例 db0
+spring:
+  #redis配置（本机 Redis，6380）
+  redis:
+    host: ${REDIS_HOST:127.0.0.1}
+    port: ${REDIS_PORT:6380}
+    # 开发环境独立逻辑库：db0
+    database: ${REDIS_DATABASE:0}
+    # 命令超时：不配的话用 Lettuce 默认的 60 秒！
+    #   stringRedisTemplate 是同步 API，会阻塞调用线程等结果；
+    #   Redis 一旦变慢/挂掉，每个依赖它的请求都会阻塞最多 60 秒，
+    #   Tomcat 线程（默认 200）几十秒内被占满 ⇒ 整个应用不可用，不只是秒杀。
+    #   注意下面的 lettuce.pool.max-wait 只是"从池里借连接"的等待上限，
+    #   拿到连接后命令照样能挂住，救不了这种情况。
+    timeout: 2000ms
+    # 连接超时：连不上就快速失败，别等
+    connect-timeout: 1000ms
+    lettuce:
+      pool:
+        max-active: 100
+        max-idle: 50
+        min-idle: 20
+        max-wait: 3000ms
+      shutdown-timeout: 100ms
+
+  #数据库（凭证一律走环境变量，禁止硬编码）
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://${DB_HOST:127.0.0.1}:${DB_PORT:3306}/${DB_NAME:peakflow}?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai
+    username: ${DB_USERNAME:}
+    password: ${DB_PASSWORD:}
+    hikari:
+      maximum-pool-size: 30
+      minimum-idle: 10
+      connection-timeout: 3000
+      idle-timeout: 600000 # 10分钟空闲连接销毁
+      max-lifetime: 1800000
+      validation-timeout: 2000
+      leak-detection-threshold: 5000
+
+#RocketMQ（本机 9876）
+rocketmq:
+  name-server: ${ROCKETMQ_NAMESRV_ADDR:127.0.0.1:9876}
+  producer:
+    group: ${ROCKETMQ_PRODUCER_GROUP:my-producer-group}
+  consumer:
+    consume-thread-min: 20
+    consume-thread-max: 50
+
+# 日志：开发环境独立目录 ./logs/dev
+logging:
+  file:
+    path: ${LOG_PATH:./logs/dev}
+  level:
+    root: ${LOG_LEVEL_ROOT:INFO}
+    com.zhou.peakflow: ${LOG_LEVEL_APP:DEBUG}
