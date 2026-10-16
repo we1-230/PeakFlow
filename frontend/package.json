@@ -7,11 +7,12 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "vitest run",
-    "test:watch": "vitest",
+    "test": "vitest run --config vitest.config.js",
+    "test:unit": "vitest run --config vitest.config.js",
+    "test:watch": "vitest --config vitest.config.js",
     "test:integration": "vitest run --config vitest.integration.config.js",
     "test:regression": "vitest run --config vitest.integration.config.js test/regression",
-    "test:ui": "vitest --ui"
+    "test:ui": "vitest --ui --config vitest.config.js"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.1",

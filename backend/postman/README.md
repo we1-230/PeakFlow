@@ -17,7 +17,7 @@
 | `setup_test_data.py` | 测试夹具：重置管理员密码 + 秒杀库存 + 基线商品（DB 与 Redis 双重置）。支持 `--db` / `--redis-db` / `--seckill-ids` / `--base-product-id`，默认值对应种子目录（秒杀商品 5,10；基线商品 1）；dev 环境示例：`--db peakflow --redis-db 0 --seckill-ids 5,10 --base-product-id 1` |
 | `verify_db_redis.py` | Newman 跑完后做 DB/Redis 落库验证（"全面检查"） |
 | `newman-report.json` | Newman 每次运行的原始报告（失败详情看这里） |
-| `newman-report-regression.json` | 本轮全量回归报告（123 请求 / 768 断言；`/user/avatar`、`/upload/image` 两条上传用例需配置 OSS 凭证） |
+| `newman-report-regression.json` | 本轮全量回归报告（123 请求 / **768 断言，0 失败**）。上传用例（`/user/avatar`、`/upload/image`）在未配 OSS 凭证时会自动降级写本地 `/uploads`，无需再专门配 OSS |
 | `fixtures/test-avatar.png` | multipart 上传用例（`/user/avatar`、`/upload/image`）用的测试图片 |
 
 ---
@@ -28,19 +28,19 @@
 
 | 组件 | 端口 | 启动方式 |
 |---|---|---|
-| MySQL | 3306 | 系统服务 MySQL80（测试库 `peakflow_test`） |
-| Redis | 6380 | `D:\tools\redis\redis-server.exe --port 6380`（测试环境 db1） |
-| RocketMQ | 9876 / 10911 | 任选其一：Docker 容器 `plekflow-rmq-namesrv` + `plekflow-rmq-broker`；或本机 `D:\rocketmq\rocketmq-all-4.9.7-bin-release\bin\mqnamesrv.cmd` + `mqbroker.cmd -n 127.0.0.1:9876`（JDK17 需用本仓库已改好的 runserver/runbroker 脚本） |
-| 应用 | 8080 | `java -jar target/PeakFlow-1.0-SNAPSHOT.jar --spring.profiles.active=test` |
+| MySQL | **3307** | `docker compose up -d mysql`（容器 `peakflow-mysql`）。**不是 3306** —— 那个端口被系统服务 MySQL80 占着，里面是别的项目的库 |
+| Redis | 6380 | `docker compose up -d redis`（容器 `peakflow-redis`） |
+| RocketMQ | 9876 / 10911 | `docker compose up -d namesrv broker`（容器 `peakflow-rmq-namesrv` / `peakflow-rmq-broker`，broker 读 `deploy/rocketmq/broker.conf`） |
+| 应用 | 8080 | `docker compose up -d backend1 backend2`；或本机 `java -jar target/PeakFlow-1.0-SNAPSHOT.jar --server.port=8080` |
 
 ```bash
-# ①（推荐）先预置基础目录：清理脏数据 + 写入 10 分类 × 5 商品（含秒杀商品）
-#    ⚠️ 脚本默认参数是 dev（peakflow + Redis db0）。本规范要求 App 以 test profile 启动，
-#       所以必须显式指定测试库，否则种子会灌进 dev 库，秒杀用例全部因「商品不存在」失败。
-python seed_base_data.py --db peakflow_test --redis-db 1
-# ② 夹具（重置管理员密码 + 秒杀库存，保证可重复执行）
-#    默认值已对应 test 环境，无需传参
-python setup_test_data.py
+# ① 先预置基础目录：清理脏数据 + 写入 10 分类 × 5 商品（含秒杀商品）
+#    ⚠️ 目标库必须与 App 实际连的库一致，否则秒杀用例会全部因「商品不存在」失败：
+#       App 跑 dev  →  --db peakflow_dev  --redis-db 0
+#       App 跑 test →  --db peakflow_test --redis-db 1
+python seed_base_data.py --db peakflow_dev --redis-db 0
+# ② 夹具（重置管理员密码 + 秒杀库存，保证可重复执行；--db / --redis-db 与上一步保持一致）
+python setup_test_data.py --db peakflow_dev --redis-db 0
 ```
 
 ### 第 1 步：导入 Postman

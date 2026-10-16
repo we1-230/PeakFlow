@@ -51,14 +51,17 @@ describe('联调 · 头像上传与回显', () => {
     expect(token).toBeTruthy()
   })
 
-  it('上传头像 → 返回 OSS 直链（multipart/form-data）', async () => {
+  it('上传头像 → 返回可访问直链（multipart/form-data）', async () => {
     const file = new File([PNG_1X1], 'fe-avatar.png', { type: 'image/png' })
     const res = await uploadAvatar(file)
 
     expect(res.code).toBe(200)
     expect(typeof res.data).toBe('string')
+    // 必须是绝对地址：前端 <img src> 不能依赖当前页面的相对路径
     expect(res.data).toMatch(/^https?:\/\//)
-    expect(res.data).toContain('aliyuncs.com')
+    // 存储后端两种都算正常：配了凭证走阿里云 OSS，没配则降级到本地 /uploads/
+    // （不去锁死供应商——换 OSS/CDN 不该让用例变红）
+    expect(res.data).toMatch(/aliyuncs\.com|\/uploads\//)
   })
 
   it('回显可用性：上传后的直链能被匿名访问且是真实图片', async () => {

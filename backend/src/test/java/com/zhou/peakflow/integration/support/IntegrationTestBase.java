@@ -38,10 +38,11 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
  *
  * <p>环境依赖（test profile，application-test.yml）：</p>
  * <ul>
- *   <li>MySQL  ：127.0.0.1:3306 / peakflow_test（root/1234）</li>
+ *   <li>MySQL  ：127.0.0.1:3307 / peakflow_test（root/1234，Docker 容器 peakflow-mysql）</li>
  *   <li>Redis  ：127.0.0.1:6380 / db1（Docker 容器 peakflow-redis）</li>
  *   <li>RocketMQ：127.0.0.1:9876（Docker 容器 peakflow-rmq-namesrv + broker）</li>
  * </ul>
+ * <p>一键拉起依赖：{@code docker compose up -d mysql redis namesrv broker}</p>
  *
  * <p>核心约定：</p>
  * <ul>

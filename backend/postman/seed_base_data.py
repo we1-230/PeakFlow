@@ -23,12 +23,16 @@
 """
 import argparse
 import json
+import os
 import subprocess
 import urllib.request
 
 import pymysql
 
-DB_HOST, DB_PORT, DB_USER, DB_PASSWORD = '127.0.0.1', 3306, 'root', '1234'
+# MySQL 端口与 docker-compose 对齐：PeakFlow 的容器 MySQL 发布到 3307
+# （3306 被系统服务 MySQL80 占着，那个实例里是别的项目的库）
+# 连别的端口用环境变量 DB_PORT 覆盖，不必改脚本
+DB_HOST, DB_PORT, DB_USER, DB_PASSWORD = '127.0.0.1', int(os.getenv('DB_PORT', '3307')), 'root', '1234'
 REDIS_CLI = r'D:\tools\redis\redis-cli.exe'
 REDIS_PORT = 6380
 API_BASE = 'http://localhost:8080'
@@ -192,7 +196,7 @@ SECKILL_PRICE_RATIO = 0.5  # 秒杀价 = 原价 5 折（保留 2 位小数）
 
 def parse_args():
     p = argparse.ArgumentParser(description='PeakFlow 基础种子数据预置（分类 + 商品 + 秒杀）')
-    p.add_argument('--db', default='peakflow', help='目标库：dev=peakflow（默认），test=peakflow_test')
+    p.add_argument('--db', default='peakflow_dev', help='目标库：dev=peakflow_dev（默认），test=peakflow_test')
     p.add_argument('--redis-db', type=int, default=0, help='Redis 库号：dev=0（默认），test=1')
     p.add_argument('--skip-clean', action='store_true', help='跳过清理（仅补种子，调试用）')
     p.add_argument('--skip-preheat', action='store_true', help='跳过秒杀缓存预热')

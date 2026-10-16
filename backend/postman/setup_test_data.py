@@ -20,6 +20,7 @@
   python setup_test_data.py --db peakflow --redis-db 0 --seckill-ids 5,10 --base-product-id 1
 """
 import argparse
+import os
 import subprocess
 from datetime import datetime
 
@@ -27,7 +28,8 @@ import bcrypt
 import pymysql
 
 DB_HOST = '127.0.0.1'
-DB_PORT = 3306
+# 与 docker-compose 对齐：容器 MySQL 发布到 3307（3306 是系统 MySQL80）
+DB_PORT = int(os.getenv('DB_PORT', '3307'))
 DB_USER = 'root'
 DB_PASSWORD = '1234'
 
@@ -46,7 +48,7 @@ BASE_PRODUCT_STOCK = 100
 def parse_args():
     p = argparse.ArgumentParser(description='PeakFlow 测试/开发夹具准备')
     p.add_argument('--db', default='peakflow_test',
-                   help='目标数据库：test 环境=peakflow_test（默认），dev 环境=peakflow')
+                   help='目标数据库：test 环境=peakflow_test（默认），dev 环境=peakflow_dev')
     p.add_argument('--redis-db', type=int, default=1,
                    help='Redis 库号：test 环境=1（默认），dev 环境=0')
     p.add_argument('--seckill-ids', default='5,10',

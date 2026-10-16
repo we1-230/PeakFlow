@@ -1,7 +1,7 @@
 # 单元测试规范说明（专项训练用）
 
-> 本目录下测试分两大类：**单元测试**（`service/impl/`、`consumer/`，**131** 个用例）与
-> **集成测试**（`integration/`，**28** 个用例）。两者遵循同一套 javadoc / 断言规范。
+> 本目录下测试分两大类：**单元测试**（`service/impl/`、`consumer/`、`mockpay/`，**152** 个用例）与
+> **集成测试**（`integration/`，**48** 个用例）。两者遵循同一套 javadoc / 断言规范。
 > **目的**：事后能快速看懂每个用例"测什么、为什么测、断言什么"，不需要重读业务代码。
 
 ---
@@ -15,7 +15,7 @@
 | **覆盖什么** | **逻辑分支**（幂等、状态机、金额校验…） | **真实环境特有的行为**：SQL 执行、事务、唯一约束、Redis 计数、MQ 链路 |
 | **跑一次** | 0.9 秒 | 数十秒 |
 | **要起环境吗** | 不要 | 要 |
-| **用例数** | **131** | **28** |
+| **用例数** | **152** | **48** |
 
 ### 选型原则：**工具要匹配问题**
 
@@ -158,81 +158,86 @@ void injectMybatisPlusBaseMapper() {
 
 ## 七、怎么跑
 
-### 7.1 单元测试（131 个用例，**不需要任何中间件**）
+### 7.1 单元测试（152 个用例，**不需要任何中间件**）
 
 ```bash
-JAVA_HOME="D:/jdk17/jdk-17.0.20+8" \
-  /e/allJAVA/maven392/apache-maven-3.9.12/bin/mvn -o test \
-  -Dtest='Pay*Test,Refund*Test,Order*Test,User*Test,SeckillConsumerTest'
+# 除集成测试外的全部单测
+JAVA_HOME="D:/jdk17/jdk-17.0.20+8" mvn -B -ntp test -Dtest='!*IntegrationTest'
 
 # 单个类
-... mvn -o test -Dtest=PayServiceImplNotifyTest
+JAVA_HOME="D:/jdk17/jdk-17.0.20+8" mvn -B -ntp test -Dtest=PayServiceImplNotifyTest
 ```
 
-**当前状态：131 个用例，0.9 秒跑完，无需 MySQL / Redis / RocketMQ。**
+**当前状态：152 个用例，1.2 秒跑完，无需 MySQL / Redis / RocketMQ。**
 （这正是"单元测试"相对"集成测试"的优势：快、隔离、随时可跑）
 
-### 7.2 集成测试（28 个用例，**必须先起环境**）
+### 7.2 集成测试（48 个用例，**必须先起环境**）
 
-#### 首次运行必做：同步 RBAC 基础数据（否则注册全挂）
+#### 环境准备：一条命令起中间件
 
-**症状**：跑集成测试时，所有涉及"注册"的用例都返回
-`{"code":5001,"message":"操作失败，该数据已存在，请勿重复操作"}`，且 `user` 表里查不到任何数据。
-
-**根因**：`peakflow_test` 库的 **`role` / `permission` / `role_permission` 三张表是空的**。
-注册流程里 `userMapper.userRole(username)` 会往 `user_role` 插数据，
-而 `user_role` 有外键 `fk_user_role_role_id → role(id)` ⇒ **外键失败 → 整个事务回滚 → 用户没插进去**。
-（报错文案"数据已存在"是全局异常处理器的兜底文案，**有误导性**。）
-
-**修复**（从主库同步这三张表的数据即可）：
+`docker-compose.yml` 已把三套环境需要的中间件全部编排好，MySQL 镜像
+**首次启动时**会自动执行 `deploy/mysql/init/` 下的脚本，建好
+`peakflow_dev` / `peakflow_test` / `peakflow_prod` 三个库，并把 schema +
+基础数据（含 `role` / `permission` / `role_permission`）灌进 dev 与 test。
 
 ```bash
-MY="/c/Program Files/MySQL/MySQL Server 8.0/bin"
-"$MY/mysqldump.exe" -h 127.0.0.1 -P 3306 -u root -p1234 --no-create-info \
-    --skip-add-locks --skip-comments --complete-insert peakflow role permission role_permission > /tmp/rbac.sql
-"$MY/mysql.exe" -h 127.0.0.1 -P 3306 -u root -p1234 peakflow_test < /tmp/rbac.sql
+# 起中间件（首次要跑 1~2 分钟初始化，之后秒起）
+docker compose up -d mysql redis namesrv broker
+
+# 四个容器都应为 healthy
+docker compose ps
 ```
 
-**验证**：`SELECT COUNT(*) FROM peakflow_test.role;` 应为 **4**（普通用户 / 超级管理员 / 商品运营 / 订单客服）。
-
-> **这是"测试库数据不完整"的典型问题** —— 表结构对齐了不代表数据对齐。
-> 以后只要动过 `sql/` 目录里的基础数据脚本，都要同步到 test 库。
+> **历史坑（现已自动解决）**：旧流程里 `peakflow_test` 的 RBAC 三张表是空的，
+> 注册用例会因外键失败整事务回滚，并报出误导性的「数据已存在」。
+> 根因是「表结构对齐了但数据没对齐」。现在由
+> `deploy/mysql/init/05-provision-envs.sh` 自动灌入，无需再手工 mysqldump。
+> 需要核对时：`SELECT COUNT(*) FROM peakflow_test.role;` 应为 **4**
+>（普通用户 / 超级管理员 / 商品运营 / 订单客服）。
 
 #### 运行命令
 
 ```bash
-# ① 启动中间件（Docker Desktop 先启动）
-docker start peakflow-redis peakflow-rmq-namesrv peakflow-rmq-broker
+# ① 注入敏感配置（yml 按安全规范去掉了兜底默认值，不注入会连不上库 / 验签失败）
+#    单元测试不需要；集成测试必须要，因为 test profile 的凭证与密钥都走环境变量
+export DB_USERNAME=root
+export DB_PASSWORD=1234                          # 与 .env 的 DB_PASSWORD 一致
+export JWT_SECRET=<32 位以上随机串>               # 不注入则签发/校验 token 失败
+export MOCK_PAY_SECRET=peakflow-mock-pay-secret-key-2026
 
-# ② 确认三个端口都在监听（3306 / 6380 / 9876）
+# ② 只跑单元测试（不需要任何中间件）
+JAVA_HOME="D:/jdk17/jdk-17.0.20+8" mvn -B -ntp test -Dtest='!*IntegrationTest'
 
-# ③ 注入敏感配置（yml 已按安全规范去掉兜底默认值，不注入会连不上库 / 签名失败）
-#    单元测试不需要；集成测试必须要，因为 test profile 的库凭证与密钥都改为环境变量注入
-export DB_USERNAME=root DB_PASSWORD=<密码>     # 数据库凭证（application-test.yml）
-export JWT_SECRET=<32位以上随机串>              # JWT 签名密钥（否则签发/校验 token 失败）
-export MOCK_PAY_SECRET=<MockPay 验签密钥>       # MockPay 签名密钥
+# ③ 跑集成测试（需中间件已起）
+JAVA_HOME="D:/jdk17/jdk-17.0.20+8" mvn -B -ntp test -Dtest='*IntegrationTest'
 
-# ④ 跑集成测试
-JAVA_HOME="D:/jdk17/jdk-17.0.20+8" \
-  /e/allJAVA/maven392/apache-maven-3.9.12/bin/mvn -o test -Dtest='*IntegrationTest'
+# ④ 单元 + 集成 一次跑完（= mvn test）
+JAVA_HOME="D:/jdk17/jdk-17.0.20+8" mvn -B -ntp test
 ```
+
+> 端口对照（与 `docker-compose.yml` / `.env` 同源）：
+> MySQL **3307**（容器映射，3306 被系统 MySQL80 占用）、Redis **6380**、
+> RocketMQ **9876 / 10911**。test profile 用 `peakflow_test` + Redis `db1`。
 
 | 集成测试类 | 用例 | 覆盖 | 必需环境 |
 |---|---|---|---|
 | `SeckillFlowIntegrationTest` | 5 | 秒杀端到端（门闩→预扣→MQ→落库→轮询）+ **一人一单（断言业务目标而非拦在哪一层）** | MySQL + **Redis** + **MQ** |
+| `SeckillCancelRollbackVerificationTest` | 3 | 秒杀单取消后：库存与购买权门闩的回滚是否正确 | MySQL + Redis + **MQ** |
 | `ConstraintAndTxIntegrationTest` | 5 | `uk_seckill_user_product` / `uk_open_order` 真实拦重复 + **生成列 NULL 免约束语义** + 乐观锁 CAS | MySQL + Redis + MQ |
-| `AuthFlowIntegrationTest` | 10 | 注册→登录→鉴权完整链路 + **BCrypt 密文验证** + **真实 Redis 失败计数/账号锁定** + **验证码用后即删** | MySQL + **Redis** + MQ |
+| `AuthFlowIntegrationTest` | 11 | 注册→登录→鉴权完整链路 + **BCrypt 密文验证** + **真实 Redis 失败计数/账号锁定** + **验证码用后即删** | MySQL + **Redis** + MQ |
 | `PaymentRefundFlowIntegrationTest` | 8 | **支付回调真实 CAS 入账** + 幂等（update_time 不变作证）+ 改价/伪造签名被拒 + **退款回调三表跨事务一致** + **走接口验证 uk_open_order** | MySQL + Redis + **MQ** |
 | `MockPayIdempotencyIntegrationTest` | 4 | **MockPay 台账落在共享 Redis（多实例一致）**：重复收款复用原交易号 / 重复退款单幂等重发 / 同一交易二次退款被拒并释放占位 | MySQL + **Redis** |
+| `CrudAndAdminWalkthroughTest` | 11 | 管理端 CRUD 全链路走查（分类/商品/用户/订单等） | MySQL + Redis + MQ |
+| `OpenApiSpecExportTest` | 1 | 导出 OpenAPI 规范，作为接口契约快照 | MySQL |
 
-> **共 32 个集成用例**。**未启动环境时会失败** —— 不是代码问题，是缺少依赖。
+> **共 48 个集成用例**。**未启动环境时会失败** —— 不是代码问题，是缺少依赖。
 > 用 `-Dtest='!*IntegrationTest'` 可以只跑单测。
 
 #### 跑集成测试挖出的 5 个真实问题（都已在测试里修正）
 
 | # | 问题 | 性质 |
 |---|---|---|
-| 1 | **`peakflow_test` 缺 RBAC 基础数据** | 环境问题（测试库数据不完整） |
+| 1 | **`peakflow_test` 缺 RBAC 基础数据** | 环境问题（现已由 `deploy/mysql/init/05-provision-envs.sh` 自动灌入） |
 | 2 | **基类常量过时**：`KEY_LOGIN_FAIL = "login:fail:"`，而生产是 `LOGIN_FAIL + account` = `login:fail{account}`（无冒号） | 测试侧与生产口径不一致 |
 | 3 | **项目行为与注释不符**：无 token 访问受保护接口返回「HTTP 200 + 业务码 401」，**不是 HTTP 403** | 断言要按真实行为写 |
 | 4 | **`SeckillResultVo.STATUS_WAITING = 0`**（「排队中」）被我误当成终态 ⇒ 轮询第一次就返回 | 常量语义理解错 |
@@ -245,7 +250,7 @@ JAVA_HOME="D:/jdk17/jdk-17.0.20+8" \
 > 而**业务目标是唯一的："一人一单"**。
 > ⇒ 所以那个用例只断言两件事：**第二次必须失败** + **库里只能有一条订单**。
 
-### 7.3 集成测试为什么只做 4 个类（"范围最小但准"）
+### 7.3 集成测试为什么只做这 8 个类（"范围最小但准"）
 
 **设计原则：只测单测覆盖不了的**，否则就是重复劳动。
 
