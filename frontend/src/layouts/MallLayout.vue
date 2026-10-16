@@ -37,7 +37,7 @@
         <router-link to="/cart" class="mall-cart-btn">
           <el-icon :size="18"><ShoppingCart /></el-icon>
           购物车
-          <span class="mall-cart-badge" v-if="cartCount > 0">{{ cartCount }}</span>
+          <span class="mall-cart-badge" v-if="cartStore.count > 0">{{ cartStore.count }}</span>
         </router-link>
       </div>
     </div>
@@ -67,21 +67,18 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
-import { Category, Cart } from '@/api'
+import { useCartStore } from '@/stores/cart'
+import { Category } from '@/api'
 import BrandLogo from '@/components/BrandLogo.vue'
 
 const router = useRouter()
 const auth = useAuthStore()
+const cartStore = useCartStore()
 const keyword = ref('')
 const categories = ref([])
-const cartCount = ref(0)
 
 async function loadCategories() {
   try { categories.value = await Category.list() } catch {}
-}
-async function loadCartCount() {
-  if (!auth.isLoggedIn) return
-  try { const list = await Cart.list(); cartCount.value = Array.isArray(list) ? list.length : 0 } catch {}
 }
 function doSearch() {
   // 关键词规范化：全角空格→半角、连续空白→单空格，确保后端多词模糊匹配正确触发
@@ -92,7 +89,7 @@ function handleLogout() {
   auth.logout()
   router.push('/')
 }
-onMounted(() => { loadCategories(); loadCartCount() })
+onMounted(() => { loadCategories(); if (auth.isLoggedIn) cartStore.refresh() })
 </script>
 
 <style scoped>

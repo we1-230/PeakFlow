@@ -196,7 +196,9 @@ import { Loading } from '@element-plus/icons-vue'
 import { Product, Cart, Category, Seckill, Address } from '@/api'
 import { SECKILL_RESULT_STATUS } from '@/constants/order'
 import { useAuthStore } from '@/stores/auth'
+import { useCartStore } from '@/stores/cart'
 const auth = useAuthStore()
+const cartStore = useCartStore()
 
 const route = useRoute()
 const router = useRouter()
@@ -287,6 +289,7 @@ async function handleAddCart() {
   }
   try {
     await Cart.add(p.id, quantity.value)
+    cartStore.refresh()   // 同步顶栏购物车角标
     ElMessage.success(`已加入购物车 ${quantity.value} 件`)
   } catch (e) {
     console.error(e)

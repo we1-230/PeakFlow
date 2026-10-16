@@ -165,6 +165,7 @@ const handleQtyChange = async (item, qty) => {
   if (qty < 1) return
   await Cart.updateQty(item.productId, qty)
   item.quantity = qty
+  cartStore.refresh()   // 数量变化不影响条目数，但保持角标与后端一致
 }
 
 const handleQtyInput = (item, event) => {
@@ -177,6 +178,7 @@ const handleRemove = async (item) => {
   try {
     await Cart.remove(item.productId)
     cartStore.remove(item.productId)
+    cartStore.refresh()  // 同步顶栏购物车角标
     ElMessage.success('删除成功')
     loadCart()
   } catch (e) {

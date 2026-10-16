@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import { Cart } from '@/api'
 
 // 购物车勾选态（前端本地维护）
 //
@@ -12,6 +13,18 @@ export const useCartStore = defineStore('cart', () => {
   const selectedIds = ref([])
   // 是否已用后端返回的 selected 初始化过（只在首次加载购物车时同步一次）
   const initialized = ref(false)
+
+  // 顶栏购物车角标数量（= 后端购物车条目数）。
+  // 背景：角标原来只在 MallLayout onMounted 时拉一次，加购/改数量/删除后不更新。
+  // 收进 store 后任何页面都能触发 refresh()，MallLayout 直接消费同一份状态。
+  const count = ref(0)
+
+  async function refresh() {
+    try {
+      const list = await Cart.list()
+      count.value = Array.isArray(list) ? list.length : 0
+    } catch { /* 未登录/网络异常时保持原值，角标不是关键路径 */ }
+  }
 
   const selectedCount = computed(() => selectedIds.value.length)
 
@@ -51,7 +64,7 @@ export const useCartStore = defineStore('cart', () => {
   }
 
   return {
-    selectedIds, initialized, selectedCount,
+    selectedIds, initialized, selectedCount, count, refresh,
     isSelected, initFromList, setOne, setAll, remove, clear,
   }
 })
