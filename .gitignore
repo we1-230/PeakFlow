@@ -107,7 +107,7 @@ pnpm-debug.log*
 #   newman run PeakFlow-API.postman_collection.json -e env-test.postman_environment.json
 # 重新生成，所以不入库。
 #
-# ⚠️ 如果你希望把「124 请求 / 779 断言 / 0 失败」的回归报告作为证据长期保留，
+# ⚠️ 如果你希望把「123 请求 / 768 断言 / 0 失败」的回归报告作为证据长期保留，
 #    删掉下面这一行即可。
 backend/postman/newman-report*.json
 
