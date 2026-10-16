@@ -527,7 +527,7 @@ user ──< user_role >── role ──< role_permission >── permission
 ```bash
 cd backend/postman
 
-python seed_base_data.py         # 预置基础数据（10 分类 × 5 商品，含 10 个秒杀商品）
+python seed_base_data.py         # 预置基础数据（10 分类 × 10 商品 = 100 条，含 60 个秒杀商品）
 python setup_test_data.py        # 重置夹具（管理员密码 + 秒杀库存）
 newman run PeakFlow-API.postman_collection.json -e env-test.postman_environment.json
 python verify_db_redis.py        # 落库验证：DB 与 Redis 的真实副作用

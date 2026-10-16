@@ -13,7 +13,7 @@
 | `PeakFlow-API.postman_collection.json` | 测试集合（13 个文件夹 / 123 个请求），由 `build_collection.py` 生成 |
 | `env-test.postman_environment.json` | 测试环境变量（baseUrl / token / 各类业务 ID） |
 | `build_collection.py` | 集合生成器（改接口后改这里再重跑，别手改 JSON） |
-| `seed_base_data.py` | **基础种子数据预置**：清理验收脏数据（业务表 + 测试账号 + Redis 脏键）并写入 **10 个分类 × 5 条商品**（每类 1 条秒杀商品，共 40 普通 + 10 秒杀），商品名称/描述/详情/图片齐全，图片为互联网公开可商用真实实拍图（与品类匹配）。参数化 `--db` / `--redis-db`，默认 dev（peakflow + db0） |
+| `seed_base_data.py` | **基础种子数据预置**：清理验收脏数据（业务表 + 测试账号 + Redis 脏键）并写入 **10 个分类 × 10 条商品（共 100 条：40 普通 + 60 秒杀）**，商品名称/描述/详情/图片齐全，图片为互联网公开可商用真实实拍图（与品类匹配）。秒杀商品 id = `5/10/15/…/50` 与 `51~100`。参数化 `--db` / `--redis-db`，默认 dev（peakflow + db0） |
 | `setup_test_data.py` | 测试夹具：重置管理员密码 + 秒杀库存 + 基线商品（DB 与 Redis 双重置）。支持 `--db` / `--redis-db` / `--seckill-ids` / `--base-product-id`，默认值对应种子目录（秒杀商品 5,10；基线商品 1）；dev 环境示例：`--db peakflow --redis-db 0 --seckill-ids 5,10 --base-product-id 1` |
 | `verify_db_redis.py` | Newman 跑完后做 DB/Redis 落库验证（"全面检查"） |
 | `smoke_test.py` | **端到端冒烟**（纯标准库，无需装依赖）：首页 → 注册 → 登录 → 地址 → 商品列表 → 秒杀列表 → 秒杀下单并轮询结果 → 下单 → 发起支付并校验收银台地址 → 模拟支付 → 已付款 → 申请退款 → 管理员登录 → 审核 → 已退款，共 **18 个断言点**。`API_BASE` 环境变量指定后端入口（容器内用 `http://nginx/api`，本机默认 `http://localhost:8080`） |
@@ -43,7 +43,7 @@
 >   按上表端口在本机执行 Python 与 newman。
 
 ```bash
-# ① 先预置基础目录：清理脏数据 + 写入 10 分类 × 5 商品（含秒杀商品）
+# ① 先预置基础目录：清理脏数据 + 写入 10 分类 × 10 商品（100 条，含 60 个秒杀商品）
 #    ⚠️ 目标库必须与 App 实际连的库一致，否则秒杀用例会全部因「商品不存在」失败：
 #       App 跑 dev  →  --db peakflow_dev  --redis-db 0
 #       App 跑 test →  --db peakflow_test --redis-db 1
