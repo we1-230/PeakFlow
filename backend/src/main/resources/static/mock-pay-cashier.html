@@ -150,6 +150,14 @@
     // 点击「确认支付」→ 调 MockPay 的收款接口
     // 注意：这里只是把"用户已付款"的意愿告诉第三方，
     // 订单状态最终由第三方异步回调商城接口来决定，本页面不直接改任何订单。
+    //
+    // ⚠️ 接口地址必须用【文档相对路径】而不是根相对路径（'/mock-pay/pay'）：
+    //   收银台页面在不同环境的挂载前缀不同 ——
+    //   · 生产：经 nginx 以 /api/mock-pay/cashier 暴露（/api/ 前缀整体代理到后端）
+    //   · 本地：直接访问 http://127.0.0.1:8080/mock-pay/cashier
+    //   写死 '/mock-pay/pay' 在生产会打到 nginx 根路径（无此 location）→ 405 HTML，
+    //   页面按 JSON 解析失败，用户看到「网络异常 / JSON 格式不支持」。
+    //   相对路径 'pay' 由浏览器按当前页面 URL 解析，两种环境都落在正确前缀下。
     // ------------------------------------------------------------------
     payBtn.addEventListener('click', function () {
         if (!payload.out_trade_no) {
@@ -161,12 +169,15 @@
         statusEl.className = 'status';
         statusEl.textContent = '正在处理支付…';
 
-        fetch('/mock-pay/pay', {
+        fetch('pay', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
         })
-            .then(function (r) { return r.json(); })
+            .then(function (r) {
+                if (!r.ok) throw new Error('支付接口异常（HTTP ' + r.status + '）');
+                return r.json();
+            })
             .then(function (res) {
                 if (res && res.success) {
                     // 支付成功：切到"已完成"面板
@@ -183,7 +194,10 @@
             .catch(function (e) {
                 payBtn.disabled = false;
                 statusEl.className = 'status err';
-                statusEl.textContent = '网络异常：' + e.message;
+                // 响应不是合法 JSON（如被网关/错误页拦截返回 HTML）时给出可读提示，而不是裸 SyntaxError
+                statusEl.textContent = (e instanceof SyntaxError)
+                    ? '支付接口返回异常响应，请稍后重试'
+                    : '网络异常：' + e.message;
             });
     });
 
