@@ -12,7 +12,13 @@
 #
 # 本镜像一次性提供容器内跑测试所需的全部工具：
 #   JDK17 + Maven    → docker compose exec tester mvn test
-#   newman (Node)    → docker compose exec tester newman run postman/...
+#   newman (Node)    → docker compose exec -T -w /workspace/backend/postman tester \
+#                        newman run PeakFlow-API.postman_collection.json \
+#                        -e env-test.postman_environment.json --env-var baseUrl=http://nginx/api
+#                      ⚠️ 必须在 postman/ 目录下跑：集合里 multipart 用例的 src 是相对路径
+#                         （fixtures/test-avatar.png），newman 按「当前工作目录」解析它。
+#                         不加 -w 会因找不到文件而让上传用例失败（业务码 5000）。
+#                         详见 README.md §9.1 与 backend/postman/README.md
 #   python3 + pymysql + bcrypt → 种子数据脚本 seed_base_data.py / setup_test_data.py
 #   redis-tools      → 种子脚本清缓存要用的 redis-cli
 #

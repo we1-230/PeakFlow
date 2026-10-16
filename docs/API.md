@@ -1257,7 +1257,11 @@ MockPay 在项目内**扮演支付宝的角色**，让资金闭环无需真实�
 
 ## 附：接口测试套件
 
-`backend/postman/` 提供与本文件一一对应的可执行测试套件：**13 个文件夹 / 123 请求 / 768 断言**（其中 4 条上传用例需配置阿里云 OSS 凭证，未配置时返回业务码 `3005`）。
+`backend/postman/` 提供与本文件一一对应的可执行测试套件：**13 个文件夹 / 123 请求 / 768 断言 / 0 失败**。
+
+上传用例（`/user/avatar`、`/upload/image`）**不需要 OSS 凭证**：`AliOssUtil` 在未配置凭证时会自动降级写本地磁盘
+（`app.upload.local-dir`，默认 `./uploads`）并返回 `/uploads/**` 直链，所以本地没有 OSS 账号也能全绿。
+（顺带纠偏：`3005` 是通用业务码 `BUSINESS_ERROR`「业务处理失败」，并非上传/OSS 专用码。）
 
 ```bash
 cd backend/postman

@@ -17,7 +17,14 @@
 # 测试工具（Maven / newman / 种子脚本）在独立的 tester 服务里，默认不启动：
 #   docker compose --profile test up -d tester
 #   docker compose exec tester mvn test
-#   docker compose exec tester newman run postman/PeakFlow-API.postman_collection.json ...
+#   # ⚠️ newman 必须让 cwd 落在 postman/ 目录（下面用 -w 显式指定）：
+#   #    集合里 multipart 用例的 src 是相对路径 fixtures/test-avatar.png，
+#   #    而 newman 按「当前工作目录」解析它、不是按集合文件所在目录。
+#   #    在 /workspace/backend 直接跑 ⇒ 找不到文件 ⇒ 请求不带文件 ⇒ 非 multipart
+#   #    ⇒ 后端 MultipartException（业务码 5000），2 个上传用例 4 个断言失败。
+#   docker compose exec -T -w /workspace/backend/postman tester \
+#     newman run PeakFlow-API.postman_collection.json \
+#       -e env-test.postman_environment.json --env-var baseUrl=http://nginx/api
 #
 # 配置来源：同目录的 .env（由 .env.example 复制而来，不进版本库）。
 # ============================================================================
@@ -296,8 +303,12 @@ services:
   #     docker compose --profile test up -d tester
   #     docker compose exec tester mvn test
   #     docker compose exec tester python3 postman/seed_base_data.py --db peakflow_dev --redis-db 0
-  #     docker compose exec tester newman run postman/PeakFlow-API.postman_collection.json \
-  #            -e postman/env-test.postman_environment.json --env-var baseUrl=http://nginx/api
+  #     # ⚠️ newman 加 -w 把 cwd 切到 postman/：集合里 multipart 的 src 是相对路径
+  #     #    （fixtures/test-avatar.png），按 cwd 解析。少了 -w 就会因找不到文件而
+  #     #    让上传用例失败（后端 MultipartException，业务码 5000，4 个断言红）。
+  #     docker compose exec -T -w /workspace/backend/postman tester \
+  #            newman run PeakFlow-API.postman_collection.json \
+  #            -e env-test.postman_environment.json --env-var baseUrl=http://nginx/api
   # ==========================================================================
   tester:
     profiles: ["test"]

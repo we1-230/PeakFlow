@@ -62,6 +62,21 @@ Postman → Import → 选 Files → 导入 env-test.postman_environment.json
 
 ### 第 2 步：跑
 
+> ⚠️ **必须在 `backend/postman/` 目录下执行**（下面命令里的相对路径基准 = 本目录）。
+> 集合里 multipart 用例的 `src` 是相对路径 `fixtures/test-avatar.png`，而
+> **newman 是按「当前工作目录」解析 `src` 的，不是按集合文件所在目录**。
+> 在 `backend/` 下直接跑 ⇒ 文件找不到 ⇒ 请求**不带文件**发出 ⇒ `Content-Type`
+> 不是 multipart ⇒ 后端 `MultipartException`（业务码 **5000**）⇒
+> `B6 上传头像` 与 `B7 上传图片` 共 **4 个断言红**。
+> 表象很像"上传功能坏了"，实际只是调用目录错了 —— 一切以本目录为 cwd 即恢复正常。
+>
+> 全容器下（后端不发布宿主机端口时）用 `-w` 显式指定 cwd：
+> ```bash
+> docker compose exec -T -w /workspace/backend/postman tester \
+>   newman run PeakFlow-API.postman_collection.json \
+>     -e env-test.postman_environment.json --env-var baseUrl=http://nginx/api
+> ```
+
 ```bash
 # 方式一：Postman 手工（Runner → Run collection）
 # 方式二：Newman 进 CI（推荐）
