@@ -1,0 +1,73 @@
+# ============================================================================
+# PeakFlow · HTTPS 层（在 docker-compose.prod.yml 之上再叠加）
+# ----------------------------------------------------------------------------
+# 完整用法（服务器上，项目根目录执行）：
+#   docker compose \
+#     -f docker-compose.yml \
+#     -f docker-compose.prod.yml \
+#     -f docker-compose.https.yml \
+#     up -d --build
+#
+# 【什么时候才叠加这一层】
+#   必须同时满足两个条件，否则别加（加了会起不来）：
+#     ① 域名已解析到本机公网 IP；
+#     ② Let's Encrypt 证书已签发（/etc/letsencrypt/live/${DOMAIN}/ 存在）。
+#   两个条件都满足时 deploy/scripts/deploy.sh 会自动带上本文件，
+#   你不需要手工敲这三行 -f。
+#
+# 【为什么证书不在容器里签，而是宿主机签好再挂进来】
+#   签证书需要占用 80 端口做 HTTP-01 校验，而 80 端口已经被本 nginx 容器占了。
+#   让 certbot 在宿主机上跑（首次用 --standalone 并短暂停掉 nginx 容器），
+#   签完把 /etc/letsencrypt 只读挂进容器 —— 职责单一：
+#   宿主机管证书生命周期，容器只管用证书。
+#   （把 certbot 塞进容器还要处理"续期时怎么让 nginx 重载"的鸡生蛋问题，
+#     以及多挂一个容器多占内存，小机器不划算。）
+#
+# 【为什么 DOMAIN 要显式传进容器】
+#   /etc/nginx/templates/peakflow-tls.conf.template 里的 ${DOMAIN}
+#   由官方镜像的 20-envsubst-on-templates.sh 在【容器启动时】替换。
+#   容器环境里没有 DOMAIN，模板就渲染不出来 ⇒ 这里用 ${DOMAIN:?} 强制要求
+#   在 .env 里配好，没配就直接报错停下，而不是留一个坏配置等运行时才发现。
+# ============================================================================
+
+services:
+  nginx:
+    # 列表型字段是【追加】语义：这里的两条会加在 docker-compose.prod.yml
+    # 已有的两条挂载（peakflow-prod.conf、snippets）之后，四者同时生效。
+    volumes:
+      # HTTPS 站点配置模板。挂进模板目录后，容器启动时官方入口脚本会自动
+      # envsubst 渲染成 /etc/nginx/conf.d/peakflow-tls.conf
+      - ./deploy/nginx/templates:/etc/nginx/templates:ro
+      # Let's Encrypt 证书（宿主机签发，容器只读）
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+    environment:
+      # 域名：模板里 server_name 与证书路径都用它
+      DOMAIN: ${DOMAIN:?请先在 .env 中设置 DOMAIN（例如 peakflow.top）}
+      TZ: Asia/Shanghai
+
+    # ------------------------------------------------------------------------
+    # 覆盖镜像里的 HEALTHCHECK（frontend/Dockerfile 里那条
+    #   `wget -q -O /dev/null http://127.0.0.1/healthz || exit 1`）
+    #
+    # ★ 为什么必须覆盖（真踩过）：
+    #   开启 HTTPS 后，80 端口的 /healthz 一律返回 301 跳转到 https。
+    #   busybox wget 默认【跟随跳转】⇒ 容器内要去解析 ${DOMAIN} 并走公网
+    #   hairpin 回到自己 ⇒ 大概率失败 ⇒ 容器被标成 unhealthy
+    #   ⇒ deploy.sh 的「等待服务就绪」判定失败 ⇒ 部署中断报错，
+    #   但此时站点其实完全正常（80 跳转正常、443 正常）。
+    #
+    # ★ 正确的检查语义：健康检查要回答的是「nginx 进程还活着吗」，
+    #   而不是「业务接口通不通」。所以只要 nginx 能应答 200 或 301/302
+    #   就算健康（-S 把响应头打到 stderr，grep 里匹配状态行即可）。
+    #
+    # ★ 为什么不改 frontend/Dockerfile 里的那条：那条在 HTTP 形态下是对的，
+    #   而且改它要重建镜像。写在 HTTPS 覆盖层里，作用域精确、零重建。
+    # ------------------------------------------------------------------------
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -S -O /dev/null http://127.0.0.1/healthz 2>&1 | grep -qE 'HTTP/1.[01] (200|301|302)'"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+# 注：ACME 校验目录 /var/www/certbot 的挂载放在 docker-compose.prod.yml 里，
+#     因为「签证书」那一步发生在还没有证书、加不了本文件的时候。

@@ -1,0 +1,97 @@
+# ============================================================================
+# PeakFlow · HTTPS 站点（.template 模板，容器启动时渲染）
+# ----------------------------------------------------------------------------
+# 【为什么文件名以 .template 结尾】
+#   nginx 配置本身读不到环境变量，域名必须写死在 server_name 与证书路径里。
+#   官方 nginx 镜像自带 /docker-entrypoint.d/20-envsubst-on-templates.sh，
+#   容器启动时会：
+#       把 /etc/nginx/templates/*.template 里的 ${XXX}
+#       用【容器里真实存在的环境变量】替换后，输出到 /etc/nginx/conf.d/*.conf
+#   它只替换「环境变量里确实有这个名字」的占位符，
+#   所以 $host / $request_uri / $remote_addr 这些 nginx 自己的变量不会被误伤。
+#
+#   渲染结果（DOMAIN=peakflow.top 时）：
+#       server_name peakflow.top www.peakflow.top;
+#       ssl_certificate /etc/letsencrypt/live/peakflow.top/fullchain.pem;
+#
+# 【什么时候才挂上去】
+#   只在「域名已解析到本机 + 证书已签发」之后，叠加 docker-compose.https.yml。
+#   未备案的国内服务器不要启用：80/443 会被运营商拦截，证书也签不下来。
+#   两个前提都满足时，deploy/scripts/deploy.sh 会自动带上这一层。
+# ============================================================================
+
+# ---------------------------------------------------------------------------
+# ① 80 端口：只做两件事 —— 放行 ACME 挑战 + 其余全部 301 跳 HTTPS
+#
+#   为什么这条 80 的 server 要写 default_server：
+#     生产形态下还会加载另一条 80 的 server（整站那份，见 peakflow-prod.conf）。
+#     同一个 listen 端口只能有一个 default_server。
+#     这里必须是「默认」，才能把「用 IP 访问」或「用未知 Host 访问」的请求
+#     也一起跳到 HTTPS —— 否则那类请求会落到整站那条上，出现
+#     「同一个站，http 能开、https 也能开」的混乱状态。
+#
+#   为什么用 $host 而不是写死域名：
+#     $host 是运行时变量，能原样带上用户实际访问的主机名，
+#     这样 www 与裸域都能正确跳转，不必写两条规则。
+# ---------------------------------------------------------------------------
+server {
+    listen      80 default_server;
+    server_name ${DOMAIN} www.${DOMAIN};
+
+    # 续期时 Let's Encrypt 还会来校验，必须放行，且不能被下面的 301 拦掉
+    location ^~ /.well-known/acme-challenge/ {
+        root         /var/www/certbot;
+        default_type text/plain;
+        access_log   off;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+# ---------------------------------------------------------------------------
+# ② 443 端口：真正的站点
+# ---------------------------------------------------------------------------
+server {
+    listen      443 ssl default_server;
+    http2       on;
+    server_name ${DOMAIN} www.${DOMAIN};
+
+    # 证书由 certbot 签发，落在宿主机 /etc/letsencrypt，只读挂进容器。
+    # fullchain = 服务器证书 + 中间证书（少一段中间证书，手机浏览器会报不受信任）
+    ssl_certificate     /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;
+
+    # 只留 TLS 1.2 / 1.3：1.0、1.1 已被所有主流浏览器弃用且有已知弱点
+    ssl_protocols TLSv1.2 TLSv1.3;
+    # 现代加密套件（等效 Mozilla intermediate）。TLS1.3 的套件由 OpenSSL 内置，
+    # 不要写进来，写了反而会启动报错。
+    ssl_ciphers  ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305;
+    ssl_prefer_server_ciphers off;
+
+    # 会话复用：命中缓存就省掉一次完整握手
+    ssl_session_cache   shared:PeakFlowTLS:10m;
+    ssl_session_timeout 1d;
+    # 关掉会话票据（tickets）：票据密钥不在本机轮换，泄露后历史流量可被解密
+    ssl_session_tickets off;
+
+    # OCSP Stapling：由本服务器替浏览器去 CA 查询证书吊销状态并"盖章"附上，
+    #   省掉浏览器自己外联 CA 的延迟，也避免 CA 不可达时的卡顿。
+    ssl_stapling        on;
+    ssl_stapling_verify on;
+    # 需要能解析 CA 的 OCSP 域名，用阿里 / 腾讯公共 DNS
+    resolver            223.5.5.5 119.29.29.29 valid=300s;
+    resolver_timeout    5s;
+
+    # HSTS 不写在这里！
+    #   ⚠️ 曾经写在这一级，结果【完全不生效】：下面的 include 里凡是自己设过
+    #      add_header 的 location，都会把 server 级的 add_header 全部丢弃
+    #      （详见 snippets/peakflow-security-headers.inc 顶部的说明）。
+    #   HSTS 现在和那 4 个安全响应头放在同一个片段里，随 locations 一起 include，
+    #   才能真正下发到每一个 location。
+    #   在 http:// 上收到该头浏览器会按 RFC 6797 §7.2 直接忽略，无副作用。
+    #
+    # 站点公共段：与 HTTP 那份是同一个文件，行为天然一致
+    include /etc/nginx/snippets/peakflow-locations.inc;
+}

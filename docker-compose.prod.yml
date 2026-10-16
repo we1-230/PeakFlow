@@ -1,0 +1,174 @@
+# ============================================================================
+# PeakFlow · 生产部署覆盖文件（单机 2 核 4G）
+# ----------------------------------------------------------------------------
+# 用法（服务器上，项目根目录执行）：
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#
+# 为什么用「覆盖文件」而不是另写一份完整的 compose：
+#   另写一份 = 两份真相。改了基础 compose 忘记同步生产那份，就会出现
+#   "本地能跑、线上行为不一样" 的经典事故。覆盖文件只描述**与开发形态的差异**，
+#   而且 docker compose 的合并语义是明确的：map（environment）按键覆盖，
+#   list（volumes/ports）追加，command 这类整段字段整体替换。
+#
+# 与默认 compose 的 6 处差异（每处都有原因）：
+#   1. 只跑 1 个后端实例 —— 2C4G 装不下两个 JVM（本机实测每个 1.1~1.2G）。
+#      多实例是为了演示负载均衡，线上不需要；backend2 被划进 multi-instance
+#      profile，叠加本文件时不再启动（不带本文件时行为完全不变）。
+#   2. 逐服务内存上限 + 容器日志上限 —— 小机器上防 OOM、防日志写满磁盘。
+#   3. MySQL / Redis 按小内存调优（性能模式关掉、连接池收敛、Redis 限内存）。
+#   4. nginx 挂载生产站点配置（覆盖镜像里那份双实例的），并额外发布 443。
+#   5. 后端以 prod profile 运行，并用 JAVA_OPTS 精确控制 JVM 内存。
+#   6. 后端日志目录权限交给部署脚本处理（容器内是非 root 用户跑）。
+#
+# ⚠️ 本文件里的每个 mem_limit 都留了余量：它们的【上限之和】约 3.6G，
+#    略小于 4G 机器的可用内存。mem_limit 是"天花板"不是"预留"，
+#    实际占用远低于此（见每项旁边的实测估算）。
+# ============================================================================
+
+# 容器日志上限：不设的话 json-file 驱动会无限增长，50G 磁盘迟早被写满。
+# 3×10MB 足够排障，又不是负担。
+x-prod-logging: &prod-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+
+  # --------------------------------------------------------------------------
+  # MySQL：关掉 performance_schema（省约 200MB）、缓冲区按 256M 收口
+  # ⚠️ command 是【整段替换】语义：基础 compose 里那三行字符集参数必须原样重复，
+  #    否则中文会变乱码（utf8mb4）且表名大小写行为变化（lower_case_table_names=1
+  #    是 Windows 上开发、Linux 上运行的兼容关键）。
+  #    实测常驻内存约 450~550MB。
+  # --------------------------------------------------------------------------
+  mysql:
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+      - --lower_case_table_names=1
+      - --innodb-buffer-pool-size=256M
+      - --max-connections=100
+      - --table-open-cache=256
+      - --performance-schema=OFF
+    mem_limit: 850m
+    logging: *prod-logging
+
+  # --------------------------------------------------------------------------
+  # Redis：限内存 128M。
+  # ⚠️ maxmemory-policy 必须保持 noeviction：
+  #    库存与"购买权门闩"的 Key 一旦被淘汰，门闩就形同失效 ⇒ 直接超卖。
+  #    宁可写失败（报错）也不能悄悄丢库存 Key。
+  #    实测常驻内存约 40~80MB。
+  # --------------------------------------------------------------------------
+  redis:
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --save
+      - "60 1"
+      - --maxmemory
+      - "128mb"
+      - --maxmemory-policy
+      - noeviction
+    mem_limit: 192m
+    logging: *prod-logging
+
+  # --------------------------------------------------------------------------
+  # RocketMQ：镜像默认按 8G 堆申请，基础 compose 里已压到 256M/512M，
+  # 这里只加内存上限与日志上限。实测 namesrv 约 300MB、broker 约 650MB。
+  # --------------------------------------------------------------------------
+  namesrv:
+    mem_limit: 320m
+    logging: *prod-logging
+
+  broker:
+    mem_limit: 700m
+    logging: *prod-logging
+
+  # --------------------------------------------------------------------------
+  # 后端：只跑 backend1
+  #
+  # ★ 这里必须用 JAVA_OPTS，不能用 JAVA_TOOL_OPTIONS，原因很关键：
+  #   镜像 Dockerfile 里预设了 JAVA_OPTS="-XX:MaxRAMPercentage=75 ..."，
+  #   启动命令是 `java $JAVA_OPTS -jar app.jar`。
+  #   而 JAVA_TOOL_OPTIONS 会被 JVM【插到命令行最前面】，
+  #   于是命令行后面的 -XX:MaxRAMPercentage=75 反而生效、把 -Xmx768m 覆盖掉，
+  #   堆会按 mem_limit 的 75% 去要（1400m×0.75≈1050m），叠加元空间就容易 OOM。
+  #   直接覆盖 JAVA_OPTS 相当于【替换】镜像里的默认值，参数顺序由我们自己掌握。
+  #
+  #   -Xms=-Xmx 固定堆，避免动态伸缩带来的抖动；
+  #   MaxMetaspaceSize 封顶 Spring/MyBatis 的类元数据区；
+  #   MaxDirectMemorySize 封顶 NIO 直接内存（Netty/文件上传会用到）；
+  #   UseSerialGC：2 核 + 低流量下，SerialGC 比 G1 更省内存和 GC 线程开销；
+  #   ExitOnOutOfMemoryError：真 OOM 时直接退出，交给 restart: unless-stopped 拉起，
+  #     而不是留一个半死不活的进程继续返回 500。
+  #   实测常驻内存约 1.0~1.2GB。
+  # --------------------------------------------------------------------------
+  backend1:
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      SNOWFLAKE_WORKER_ID: "1"
+      TZ: Asia/Shanghai
+      JAVA_OPTS: >-
+        -Xms256m -Xmx768m
+        -XX:MaxMetaspaceSize=192m
+        -XX:MaxDirectMemorySize=64m
+        -XX:ReservedCodeCacheSize=96m
+        -Xss512k
+        -XX:+UseSerialGC
+        -XX:+ExitOnOutOfMemoryError
+        -Dfile.encoding=UTF-8
+        -Duser.timezone=Asia/Shanghai
+    mem_limit: 1400m
+    logging: *prod-logging
+
+  # 划入 profile：叠加本文件时不启动（不带本文件时仍是默认双实例，
+  # 本地演示与 CI 的行为完全不受影响）
+  backend2:
+    profiles: ["multi-instance"]
+    logging: *prod-logging
+
+  # --------------------------------------------------------------------------
+  # nginx：唯一对外入口。80 必开；443 供 HTTPS 使用。
+  #   备案期间把 .env 里的 NGINX_PORT 设成 8080，用「IP:8080」先验收，
+  #   备案通过后改回 80 即可（443 不受影响）。
+  #
+  # 挂载两处：
+  #   ① peakflow-prod.conf 覆盖镜像自带的 /etc/nginx/conf.d/default.conf
+  #      —— 那份的 upstream 写死了 backend1+backend2，生产单实例会解析不到
+  #         backend2 导致 nginx 起不来（详见该文件的头部注释）。
+  #   ② snippets 目录只读挂进去，供 ① 与 HTTPS 那份 include。
+  # 因为都是 bind mount，改配置不用重建镜像，up -d 重建容器即可生效。
+  # --------------------------------------------------------------------------
+  nginx:
+    ports:
+      - "${NGINX_PORT:-80}:80"
+      - "${NGINX_HTTPS_PORT:-443}:443"
+    # ⚠️ 必须用 !override 整段替换基础 compose 的 depends_on。
+    #    默认合并语义会把基础文件里的 backend2 保留下来，而 backend2 在
+    #    本文件里已被划入 multi-instance profile ⇒ Compose 直接报
+    #    "service nginx depends on undefined service backend2"。
+    #    这里只留 backend1，且 service_started 就够（nginx 启动时需要能解析
+    #    upstream 里的服务名，不需要后端已经健康）。
+    depends_on: !override
+      backend1:
+        condition: service_started
+    volumes:
+      - ./deploy/nginx/peakflow-prod.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./deploy/nginx/snippets:/etc/nginx/snippets:ro
+      # ACME 校验目录。放在【这一层而不是 HTTPS 那一层】是必须的：
+      #   签证书时容器还没有证书，加不了 HTTPS 层，但 Let's Encrypt 又要
+      #   通过 http://域名/.well-known/acme-challenge/xxx 来核对域名归属，
+      #   而这个目录就是要被 nginx 读出去的那个。
+      #   目录不存在时 Docker 会自动在宿主机建一个空目录，无副作用。
+      - /var/www/certbot:/var/www/certbot:ro
+    environment:
+      TZ: Asia/Shanghai
+    mem_limit: 128m
+    logging: *prod-logging
+
+  # 测试工具容器（profile=test），生产形态只是把日志也限上
+  tester:
+    logging: *prod-logging
