@@ -22,6 +22,16 @@
   <img alt="Single entry" src="https://img.shields.io/badge/entry-nginx%3A80-009639?logo=nginx&logoColor=white">
 </p>
 
+## 界面预览
+
+| 商城首页 | 限时秒杀 |
+|---|---|
+| ![商城首页](docs/screenshots/mall-home.png) | ![限时秒杀](docs/screenshots/seckill.png) |
+| **管理后台** | **登录页** |
+| ![管理后台](docs/screenshots/admin-dashboard.png) | ![登录页](docs/screenshots/login.png) |
+
+> 以上均为 `docker compose up -d --build` 启动后的真实运行截图（商城端账号 `malluser / User123456`，后台 `pfadmin / Admin123456`）。
+
 ---
 
 ## 30 秒上手
