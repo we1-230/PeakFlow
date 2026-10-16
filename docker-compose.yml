@@ -1,39 +1,58 @@
 # ============================================================================
-# PeakFlow 秒杀商城 · 整栈 docker-compose
+# PeakFlow 秒杀商城 · 整栈 docker-compose（联合部署形态）
 # ----------------------------------------------------------------------------
-# 启动全部：        docker compose up -d
-# 只起中间件：      docker compose up -d mysql redis namesrv broker
-# 看状态：          docker compose ps
-# 看某个服务日志：  docker compose logs -f broker
-# 清空重建（注意会删数据卷）：docker compose down -v
+# 启动全部：            docker compose up -d --build
+# 只看状态：            docker compose ps
+# 看某个服务日志：      docker compose logs -f nginx
+# 清空重建（会删数据）：docker compose down -v
+#
+# ★ 对外入口只有 nginx 一个（${NGINX_PORT}，默认 80）。
+#   mysql / redis / rocketmq / backend1 / backend2 全部只挂在内部网络 peakflow-net 上，
+#   不发布任何宿主机端口 —— 外部无法直连数据库与后端实例，这是刻意的收敛。
+#
+# 需要「本机 IDE 直跑后端 / postman 种子脚本 / 前端 dev server」时，
+# 叠加 dev 覆盖文件把调试端口放出来（该文件不会被 compose 自动加载）：
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+#
+# 测试工具（Maven / newman / 种子脚本）在独立的 tester 服务里，默认不启动：
+#   docker compose --profile test up -d tester
+#   docker compose exec tester mvn test
+#   docker compose exec tester newman run postman/PeakFlow-API.postman_collection.json ...
 #
 # 配置来源：同目录的 .env（由 .env.example 复制而来，不进版本库）。
-#   Compose 会自动读取 .env 做变量插值，因此这里所有 ${VAR} 都由它提供。
-#
-# 端口约定（为什么 MySQL 是 3307 而不是 3306）：
-#   本机 3306 已被 Windows 服务 MySQL80 占用，且那个实例里存着其他项目的库。
-#   为了不干扰它们，PeakFlow 的中间件统一走独立端口，DB_PORT 默认 3307。
-#   Redis 6380 / RocketMQ 9876+10911 都是空闲端口，沿用各自默认值。
 # ============================================================================
 
 name: peakflow
 
 networks:
+  # 全部服务共用的自定义 bridge 网络。
+  # 好处有两个：① 服务之间可以用「服务名」当主机名互相解析；
+  #            ② 与默认 bridge 隔离，宿主机上其他容器不会误连到本项目。
   peakflow-net:
     driver: bridge
 
 volumes:
   mysql-data:
   redis-data:
+  # 两个 backend 实例【共享】的上传目录（挂在 /app/uploads）。
+  #
+  # 为什么必须共享：未配置 OSS 凭证时，上传会降级写到各实例的本地盘。若不共享，
+  # nginx 用 least_conn 分发会让「上传」和后续「读取」落到不同实例 ——
+  # 实例 A 写的文件，实例 B 的 /uploads/** 静态映射里没有，回显就是 404。
+  # 这是多实例 + 本地存储的固有问题，共享卷是最小代价的解法（生产更推荐直接上 OSS）。
+  #
+  # 用 named volume 而不是 bind mount（./backend/uploads）：避免 Windows/Linux 之间的
+  # 属主与换行/权限差异，也不必让宿主机目录进入仓库。
+  peakflow-uploads:
   # 注意：这里【没有】给 RocketMQ 建卷，是有意为之 ——
   # apache/rocketmq 镜像以非 root 的 rocketmq(uid 3000) 运行，而新建的 named volume
   # 属主是 root:root 755，broker 写不进去会直接启动失败（退出码 253，且日志都写不出来）。
   # 不挂卷时 store/logs 落在容器可写层：docker compose restart 不丢，
   # 只有 docker compose down（删容器）才丢 —— 对本地开发足够。
-  # 若生产要持久化，请为 ~/.m2 同理地预置属主：先 chown 3000:3000 再挂载。
+  # 若生产要持久化，请为 store/logs 预置属主：先 chown 3000:3000 再挂载。
 
 # ============================================================================
-# 两个后端实例共用的环境变量（YAML 锚点，避免整段复制两遍）
+# 后端 / 测试容器共用的环境变量（YAML 锚点，避免整段复制多遍）
 #   容器内主机名是 compose 服务名（mysql / redis / namesrv），
 #   与 .env 里给「本机跑后端」用的 127.0.0.1 必须区分开，因此在这里显式覆盖。
 #   唯一要各写一遍的是 SNOWFLAKE_WORKER_ID —— 它决定雪花 ID 的机器位。
@@ -44,8 +63,18 @@ x-backend-env: &backend-env
   REDIS_HOST: redis
   REDIS_PORT: "6379"
   ROCKETMQ_NAMESRV_ADDR: namesrv:9876
-  # 容器内自己调自己的回调地址（两个实例容器内监听的都是 8080）
-  MOCK_PAY_CASHIER_URL: http://127.0.0.1:8080/mock-pay/cashier
+
+  # ⚠️ 这两个地址必须区分清楚「谁来访问」：
+  #
+  # ① 收银台地址是**浏览器**要跳转打开的，而后端容器已经把 8080 收回网络内部了，
+  #    所以它必须走唯一对外入口 nginx（/api 前缀由 nginx 剥掉）。
+  #    写成 127.0.0.1:8080 的话，用户点「去支付」会直接打不开。
+  MOCK_PAY_CASHIER_URL: ${PUBLIC_BASE_URL:-http://localhost}/api/mock-pay/cashier
+  # 本地降级上传返回的图片直链同样是**浏览器**要加载的，同理走 nginx。
+  APP_UPLOAD_PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost}/api
+  #
+  # ② 下面这些是**服务端之间**的回调地址（后端 → 自己容器内的 MockPay、第三方 → 后端），
+  #    只在容器网络里发生，浏览器不参与，所以保持容器内直连 8080 最快也最稳。
   MOCK_PAY_NOTIFY_URL: http://127.0.0.1:8080/pay/notify
   MOCK_PAY_REFUND_URL: http://127.0.0.1:8080/mock-pay/refund
   MOCK_PAY_REFUND_NOTIFY_URL: http://127.0.0.1:8080/refund/notify
@@ -71,9 +100,8 @@ services:
       #    会导致初始化数据落错库（test/prod 由 05-provision-envs.sh 显式灌入）。
       MYSQL_DATABASE: peakflow_dev
       TZ: Asia/Shanghai
-    ports:
-      # 宿主 ${DB_PORT} → 容器 3306；Spring 的 DB_PORT 复用同一个变量，单一事实来源
-      - "${DB_PORT:-3307}:3306"
+    # ★ 不发布端口：只有网络内的 backend1/backend2/tester 能连 3306。
+    #   本机需要连库调试时叠加 docker-compose.dev.yml。
     volumes:
       - mysql-data:/var/lib/mysql
       # 挂整个 init 目录：镜像按文件名字典序执行
@@ -104,8 +132,6 @@ services:
       - noeviction      # ⚠️ 不能用 allkeys-lru：库存 Key 被淘汰会导致超卖
     environment:
       TZ: Asia/Shanghai
-    ports:
-      - "${REDIS_PORT:-6380}:6379"
     volumes:
       - redis-data:/data
     healthcheck:
@@ -126,8 +152,6 @@ services:
     environment:
       TZ: Asia/Shanghai
       JAVA_OPT_EXT: "-Xms256m -Xmx256m -Xmn128m"
-    ports:
-      - "${ROCKETMQ_NAMESRV_PORT:-9876}:9876"
     command: sh mqnamesrv
     healthcheck:
       test: ["CMD-SHELL", "sh -c 'echo > /dev/tcp/127.0.0.1/9876' || exit 1"]
@@ -139,8 +163,14 @@ services:
 
   # ==========================================================================
   # RocketMQ Broker：消息存储与投递
-  #   broker.conf 里 brokerIP1=127.0.0.1，让宿主机上的应用能连回 broker，
-  #   原因见 deploy/rocketmq/broker.conf 的注释
+  #
+  # ★ brokerIP1 是本服务最容易踩的坑：它决定「应用从 NameServer 拿到哪个地址
+  #   去连 broker」。后端进了容器之后，如果还写 127.0.0.1，后端会去连自己的
+  #   回环地址（容器里没有 broker），结果是秒杀接口依然返回 200、订单也建出来了，
+  #   但日志里全是 syncSend failed —— 实际走的是降级同步落库，MQ 完全没参与。
+  #
+  #   所以这里用 $BROKER_IP1 渲染模板：默认值 broker（compose 服务名，容器内可解析）；
+  #   叠加 docker-compose.dev.yml 时改成 127.0.0.1，供宿主机上的后端直连。
   # ==========================================================================
   broker:
     image: apache/rocketmq:4.9.7
@@ -149,14 +179,20 @@ services:
     environment:
       TZ: Asia/Shanghai
       JAVA_OPT_EXT: "-Xms512m -Xmx512m -Xmn256m"
-    ports:
-      - "${ROCKETMQ_BROKER_PORT:-10911}:10911"   # 主端口：客户端收发消息
-      - "10909:10909"                            # VIP 通道（未启用，留给后续）
-      - "10912:10912"                            # HA 主从同步（单机不用）
+      # broker 对外宣告的地址：默认用同一自定义网络内的服务名
+      BROKER_IP1: ${BROKER_IP1:-broker}
     volumes:
-      # 只挂配置：broker.conf 是只读文件，任何用户都能读，不受上面说的属主问题影响
-      - ./deploy/rocketmq/broker.conf:/home/rocketmq/conf/broker.conf:ro
-    command: sh mqbroker -c /home/rocketmq/conf/broker.conf
+      # 只挂配置：这份是**模板**，只读；渲染后的最终配置写到 /tmp
+      # （/home/rocketmq/conf 是 Docker 为挂载自动建的 root 目录，
+      #   uid 3000 的 rocketmq 写不进去，所以不往那儿写）
+      - ./deploy/rocketmq/broker.conf:/home/rocketmq/conf/broker.conf.tpl:ro
+    command:
+      - sh
+      - -c
+      - >-
+        sed "s/__BROKER_IP1__/$$BROKER_IP1/g" /home/rocketmq/conf/broker.conf.tpl > /tmp/broker.conf
+        && echo "[peakflow] brokerIP1 = $$BROKER_IP1"
+        && exec sh mqbroker -c /tmp/broker.conf
     depends_on:
       namesrv:
         condition: service_healthy
@@ -170,7 +206,7 @@ services:
 
   # ==========================================================================
   # 后端实例 1：同一镜像，靠 SNOWFLAKE_WORKER_ID=1 与实例 2 区分
-  #   对外映射 ${BACKEND1_PORT:-8080}，方便单独 curl 验证某个实例
+  #   不发布端口：对外只有 nginx 一个入口，流量由 nginx 的 upstream 分发
   # ==========================================================================
   backend1:
     build:
@@ -184,11 +220,12 @@ services:
       <<: *backend-env
       # ★ 多实例的关键：雪花 ID 机器位必须唯一，否则同毫秒会生成重复 ID
       SNOWFLAKE_WORKER_ID: "1"
-    ports:
-      - "${BACKEND1_PORT:-8080}:8080"
     volumes:
       # 两个实例不能共写同一日志目录，否则日志文件互相覆盖
       - ./backend/logs/backend1:/app/logs
+      # 上传目录必须共享：未配 OSS 时降级写本地盘，不共享就会出现
+      # 「A 上传、B 读取 ⇒ 404」的回显失效（见顶层 volumes 说明）
+      - peakflow-uploads:/app/uploads
     depends_on:
       mysql:
         condition: service_healthy
@@ -199,7 +236,7 @@ services:
     networks: [peakflow-net]
 
   # ==========================================================================
-  # 后端实例 2：与实例 1 完全同构，只有 worker-id 与宿主机端口不同
+  # 后端实例 2：与实例 1 完全同构，只有 worker-id 不同
   # ==========================================================================
   backend2:
     build:
@@ -212,10 +249,10 @@ services:
     environment:
       <<: *backend-env
       SNOWFLAKE_WORKER_ID: "2"
-    ports:
-      - "${BACKEND2_PORT:-8081}:8080"
     volumes:
       - ./backend/logs/backend2:/app/logs
+      # 与 backend1 共用同一个上传卷（理由同上）
+      - peakflow-uploads:/app/uploads
     depends_on:
       mysql:
         condition: service_healthy
@@ -226,22 +263,68 @@ services:
     networks: [peakflow-net]
 
   # ==========================================================================
-  # 前端：nginx 托管 Vite 产物，/api 按 least_conn 负载均衡到 backend1/backend2
+  # nginx：既是前端静态托管，也是唯一的对外入口（反代 + 负载均衡）
+  #   upstream peakflow_backend 用 least_conn 把 /api/ 分给 backend1/backend2
+  #   配置见 frontend/nginx/default.conf
   # ==========================================================================
-  frontend:
+  nginx:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    image: peakflow-frontend:latest
-    container_name: peakflow-frontend
+    image: peakflow-nginx:latest
+    container_name: peakflow-nginx
     restart: unless-stopped
     environment:
       TZ: Asia/Shanghai
     ports:
-      - "${FRONTEND_PORT:-3001}:80"
+      # ★ 全栈唯一发布的端口
+      - "${NGINX_PORT:-80}:80"
     depends_on:
       # 只保证启动顺序：nginx 启动时要能解析 backend1/backend2 这两个服务名，
       # 容器一旦创建 DNS 别名就存在，无需等它们健康
       - backend1
       - backend2
     networks: [peakflow-net]
+
+  # ==========================================================================
+  # tester：测试工具容器（默认不启动，profile=test）
+  #   为什么单独做镜像而不是把工具塞进 backend1：backend1/backend2 是生产运行镜像，
+  #   只需要 JRE + jar；把 JDK/Maven/Node/源码装进去会让镜像从 230MB 涨到 1GB+，
+  #   而且生产镜像里带构建工具本身就是坏味道。
+  #
+  #   用法：
+  #     docker compose --profile test up -d tester
+  #     docker compose exec tester mvn test
+  #     docker compose exec tester python3 postman/seed_base_data.py --db peakflow_dev --redis-db 0
+  #     docker compose exec tester newman run postman/PeakFlow-API.postman_collection.json \
+  #            -e postman/env-test.postman_environment.json --env-var baseUrl=http://nginx/api
+  # ==========================================================================
+  tester:
+    profiles: ["test"]
+    build:
+      # 构建上下文必须是项目根：Dockerfile 要读 backend/pom.xml 预热 Maven 仓库
+      context: .
+      dockerfile: deploy/tester/Dockerfile
+    image: peakflow-tester:latest
+    container_name: peakflow-tester
+    env_file: .env
+    environment:
+      <<: *backend-env
+      # 种子脚本要调后端的预热接口，这里走 nginx（顺便也验证了反代链路）
+      API_BASE: http://nginx/api
+      # 容器里用的是 Ubuntu 的 redis-tools，不再是 Windows 那份 redis-cli.exe
+      REDIS_CLI: redis-cli
+    volumes:
+      # 挂源码而不是打进镜像：改代码后不必重建镜像，直接重新 exec 即可
+      - ./backend:/workspace/backend
+    working_dir: /workspace/backend
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      broker:
+        condition: service_healthy
+    networks: [peakflow-net]
+    # 容器只提供服务给 exec，不需要常驻业务进程
+    command: ["sleep", "infinity"]

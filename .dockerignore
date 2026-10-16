@@ -1,0 +1,33 @@
+# ============================================================================
+# 项目根构建上下文的排除清单
+# ----------------------------------------------------------------------------
+# 只有 deploy/tester/Dockerfile 的 context 是项目根（它要读 backend/pom.xml）。
+# 前端与后端各自的 Dockerfile 用的是子目录 context，走它们自己的 .dockerignore。
+#
+# 不排除的话，docker build 会先把整个项目（含 node_modules / target / logs）
+# 打包发给 daemon，动辄几百 MB，构建会莫名其妙地慢。
+# ============================================================================
+
+# 版本控制与工具目录
+.git
+.gitignore
+.gitattributes
+.workbuddy
+.idea
+
+# 后端构建产物与运行期目录
+backend/target
+backend/logs
+backend/uploads
+
+# 前端依赖与构建产物
+frontend/node_modules
+frontend/dist
+frontend/node_modules/.vite-int
+frontend/node_modules/.cache
+
+# 文档与杂项（不影响任何镜像构建）
+docs
+README.md
+**/*.log
+**/.DS_Store
