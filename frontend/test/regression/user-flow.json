@@ -1,7 +1,6 @@
 {
   "name": "PeakFlow 前端全接口回归（用户操作模拟）",
-  "description": "声明式描述「用户/管理员在商城与后台的一次完整操作序列」，覆盖前端 src/api.js 暴露的全部接口。执行器见 run-flow.js，入口用例见 regression.test.js。运行前需保证后端已启动并执行过 java后端/postman/setup_test_data.py 重置夹具。",
-  "baseUrl": "http://localhost:8080",
+  "description": "声明式描述「用户/管理员在商城与后台的一次完整操作序列」，覆盖前端 src/api.js 暴露的全部接口。执行器见 run-flow.js，入口用例见 regression.test.js。运行前需保证后端已启动并执行过 backend/postman/setup_test_data.py 重置夹具。后端地址不在本文件声明：由 PEAKFLOW_API_BASE 环境变量决定（见 test/integration/setup.js），默认 http://localhost:8080；全容器形态用 http://localhost/api。",
   "steps": [
     {
       "id": "auth.captcha",

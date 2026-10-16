@@ -10,7 +10,8 @@
 //   fetch + FormData 复刻同一条请求；前端 api 层的封装另有单元测试覆盖。
 import { describe, it, expect, beforeAll } from 'vitest'
 
-const BASE = 'http://localhost:8080'
+// 地址同样由环境变量决定，理由见 api.test.js 顶部说明
+const BASE = process.env.PEAKFLOW_API_BASE || 'http://localhost:8080'
 
 // 最小合法 PNG（1x1），保证后端 ImageIO 能识别为真实图片
 const PNG_1X1 = Buffer.from(

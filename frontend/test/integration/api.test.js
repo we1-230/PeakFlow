@@ -1,16 +1,23 @@
 // 前后端联调（不走 Mock，直连真实后端）
 //
 // 运行前提：
-//   1. 后端已在 8080 启动（test profile，连 peakflow_test 库 + 6380 Redis + 9876 RocketMQ）
-//   2. 已执行过 java后端/postman/setup_test_data.py 重置夹具（管理员密码、秒杀库存）
+//   1. 后端已启动（test profile，连 peakflow_test 库 + Redis + RocketMQ）
+//   2. 已执行过 backend/postman/setup_test_data.py 重置夹具（管理员密码、秒杀库存）
 // 运行：npm run test:integration
+//
+// 后端地址由 PEAKFLOW_API_BASE 决定，默认直连 8080：
+//   · 本机直跑后端 / 叠加 docker-compose.dev.yml → 用默认值即可
+//   · 只暴露 nginx 的部署形态（唯一入口 80）      → PEAKFLOW_API_BASE=http://localhost/api
+//     （nginx 会把 /api 前缀剥掉再转发给 backend1/backend2）
+// 注意：这里必须读环境变量而不能写死 8080，否则在全容器形态下会 ECONNREFUSED ——
+// 两个 backend 都不发布宿主机端口，宿主机上根本没有 8080 在听。
 //
 // 覆盖核心链路的每一步：登录 → 头像上传与回显 → 秒杀(含轮询) → 支付收款 → 退款售后。
 import { describe, it, expect, beforeAll } from 'vitest'
 import crypto from 'node:crypto'
 import http, { Auth, User, Address, Order, Pay, Refund, Seckill, Product } from '@/api'
 
-const BASE = 'http://localhost:8080'
+const BASE = process.env.PEAKFLOW_API_BASE || 'http://localhost:8080'
 http.defaults.baseURL = BASE
 
 const MOCK_PAY_SECRET = 'peakflow-mock-pay-secret-key-2026'

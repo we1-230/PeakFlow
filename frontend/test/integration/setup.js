@@ -8,6 +8,10 @@
 // node 环境没有 window/DOM，此时不要加载 api 模块（它依赖 element-plus）。
 if (typeof window !== 'undefined') {
   const { default: http } = await import('@/api')
-  http.defaults.baseURL = 'http://localhost:8080'
+  // 后端地址可用环境变量覆盖，默认直连本机跑的 8080：
+  //   · 本机直跑后端 / 叠加 docker-compose.dev.yml  → 默认值即可
+  //   · 只暴露 nginx 的部署形态（80）               → PEAKFLOW_API_BASE=http://localhost/api
+  //     （nginx 会把 /api 前缀剥掉再转发给 backend1/backend2）
+  http.defaults.baseURL = process.env.PEAKFLOW_API_BASE || 'http://localhost:8080'
   http.defaults.adapter = 'fetch'
 }
