@@ -16,8 +16,9 @@
 | `seed_base_data.py` | **基础种子数据预置**：清理验收脏数据（业务表 + 测试账号 + Redis 脏键）并写入 **10 个分类 × 5 条商品**（每类 1 条秒杀商品，共 40 普通 + 10 秒杀），商品名称/描述/详情/图片齐全，图片为互联网公开可商用真实实拍图（与品类匹配）。参数化 `--db` / `--redis-db`，默认 dev（peakflow + db0） |
 | `setup_test_data.py` | 测试夹具：重置管理员密码 + 秒杀库存 + 基线商品（DB 与 Redis 双重置）。支持 `--db` / `--redis-db` / `--seckill-ids` / `--base-product-id`，默认值对应种子目录（秒杀商品 5,10；基线商品 1）；dev 环境示例：`--db peakflow --redis-db 0 --seckill-ids 5,10 --base-product-id 1` |
 | `verify_db_redis.py` | Newman 跑完后做 DB/Redis 落库验证（"全面检查"） |
-| `newman-report.json` | Newman 每次运行的原始报告（失败详情看这里） |
-| `newman-report-regression.json` | 本轮全量回归报告（123 请求 / **768 断言，0 失败**）。上传用例（`/user/avatar`、`/upload/image`）在未配 OSS 凭证时会自动降级写本地 `/uploads`，无需再专门配 OSS |
+| `smoke_test.py` | **端到端冒烟**（纯标准库，无需装依赖）：首页 → 注册 → 登录 → 地址 → 商品列表 → 秒杀列表 → 秒杀下单并轮询结果 → 下单 → 发起支付并校验收银台地址 → 模拟支付 → 已付款 → 申请退款 → 管理员登录 → 审核 → 已退款，共 **18 个断言点**。`API_BASE` 环境变量指定后端入口（容器内用 `http://nginx/api`，本机默认 `http://localhost:8080`） |
+| `newman-report.json` | Newman 原始报告（失败详情看这里）。**本地生成，未入库**（见 `.gitignore`） |
+| `newman-report-regression.json` | 全量回归报告（123 请求 / **768 断言，0 失败**）。**本地生成，未入库**：上传用例（`/user/avatar`、`/upload/image`）在未配 OSS 凭证时会自动降级写本地 `/uploads`，无需再专门配 OSS |
 | `fixtures/test-avatar.png` | multipart 上传用例（`/user/avatar`、`/upload/image`）用的测试图片 |
 
 ---
@@ -32,6 +33,14 @@
 | Redis | 6380 | `docker compose up -d redis`（容器 `peakflow-redis`） |
 | RocketMQ | 9876 / 10911 | `docker compose up -d namesrv broker`（容器 `peakflow-rmq-namesrv` / `peakflow-rmq-broker`，broker 读 `deploy/rocketmq/broker.conf`） |
 | 应用 | 8080 | `docker compose up -d backend1 backend2`；或本机 `java -jar target/PeakFlow-1.0-SNAPSHOT.jar --server.port=8080` |
+
+> ⚠️ 上表的端口是**叠加 `docker-compose.dev.yml` 之后**才发布的（默认形态下后端与中间件都不发布宿主机端口，
+> 只有 nginx 的 80）。两种跑法二选一：
+>
+> - **全容器**：`docker compose up -d --build` + `docker compose --profile test up -d tester`，
+>   然后在 tester 容器里跑本目录的脚本（见下方"两种执行方式"）。
+> - **本机直跑脚本**：`docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d`，
+>   按上表端口在本机执行 Python 与 newman。
 
 ```bash
 # ① 先预置基础目录：清理脏数据 + 写入 10 分类 × 5 商品（含秒杀商品）

@@ -15,9 +15,9 @@
   python seed_base_data.py            # 先预置基础目录（--db peakflow_test --redis-db 1）
   python setup_test_data.py
 
-切到开发环境（dev profile 用 peakflow 库 + Redis db0）：
-  python seed_base_data.py --db peakflow --redis-db 0
-  python setup_test_data.py --db peakflow --redis-db 0 --seckill-ids 5,10 --base-product-id 1
+切到开发环境（dev profile 用 peakflow_dev 库 + Redis db0）：
+  python seed_base_data.py --db peakflow_dev --redis-db 0
+  python setup_test_data.py --db peakflow_dev --redis-db 0 --seckill-ids 5,10 --base-product-id 1
 """
 import argparse
 import os
@@ -27,15 +27,20 @@ from datetime import datetime
 import bcrypt
 import pymysql
 
-DB_HOST = '127.0.0.1'
-# 与 docker-compose 对齐：容器 MySQL 发布到 3307（3306 是系统 MySQL80）
+# 连接参数一律走环境变量，默认值 = 「宿主机连 compose 发布的端口」这一场景。
+# 在测试容器（tester）里跑时由 compose 注入 DB_HOST=mysql / DB_PORT=3306 /
+# REDIS_HOST=redis / REDIS_PORT=6379，脚本无需改动。
+DB_HOST = os.getenv('DB_HOST', '127.0.0.1')
+# MySQL 默认 3307：容器 MySQL 默认发布到 3307（3306 是系统 MySQL80）
 DB_PORT = int(os.getenv('DB_PORT', '3307'))
-DB_USER = 'root'
-DB_PASSWORD = '1234'
+DB_USER = os.getenv('DB_USER', 'root')
+DB_PASSWORD = os.getenv('DB_PASSWORD', '1234')
 
-# Redis（test 环境 6380 / db1；dev 环境 6380 / db0）
-REDIS_CLI = r'D:\tools\redis\redis-cli.exe'
-REDIS_PORT = 6380
+# Redis（宿主机 test 环境 6380 / db1；dev 环境 6380 / db0）
+# 宿主机默认用本机那份 redis-cli.exe；容器里换成 redis-tools 的 redis-cli
+REDIS_CLI = os.getenv('REDIS_CLI', r'D:\tools\redis\redis-cli.exe')
+REDIS_HOST = os.getenv('REDIS_HOST', '127.0.0.1')
+REDIS_PORT = int(os.getenv('REDIS_PORT', '6380'))
 
 # 管理端账号（与 postman 环境变量 adminUser/adminPass 保持一致）
 ADMIN_USER = 'pfadmin'
@@ -65,7 +70,7 @@ def bcrypt_hash(password: str) -> str:
 def redis_del(key: str, redis_db: int):
     """删除指定 Redis 库里的 key。"""
     try:
-        subprocess.run([REDIS_CLI, '-p', str(REDIS_PORT), '-n', str(redis_db), 'del', key],
+        subprocess.run([REDIS_CLI, '-h', REDIS_HOST, '-p', str(REDIS_PORT), '-n', str(redis_db), 'del', key],
                        capture_output=True, text=True, timeout=5)
     except Exception as e:
         print('    [warn] 清理 Redis key 失败：%s（%s）' % (key, e))

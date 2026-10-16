@@ -29,13 +29,22 @@ import urllib.request
 
 import pymysql
 
-# MySQL 端口与 docker-compose 对齐：PeakFlow 的容器 MySQL 发布到 3307
+# 连接参数一律走环境变量，默认值 = 「宿主机连 compose 发布的端口」这一场景。
+# 在测试容器（tester）里跑时由 compose 注入 DB_HOST=mysql / DB_PORT=3306 /
+# REDIS_HOST=redis / REDIS_PORT=6379 / API_BASE=http://nginx/api，脚本无需改动。
+#
+# MySQL 端口默认 3307：PeakFlow 的容器 MySQL 默认发布到 3307
 # （3306 被系统服务 MySQL80 占着，那个实例里是别的项目的库）
-# 连别的端口用环境变量 DB_PORT 覆盖，不必改脚本
-DB_HOST, DB_PORT, DB_USER, DB_PASSWORD = '127.0.0.1', int(os.getenv('DB_PORT', '3307')), 'root', '1234'
-REDIS_CLI = r'D:\tools\redis\redis-cli.exe'
-REDIS_PORT = 6380
-API_BASE = 'http://localhost:8080'
+DB_HOST = os.getenv('DB_HOST', '127.0.0.1')
+DB_PORT = int(os.getenv('DB_PORT', '3307'))
+DB_USER = os.getenv('DB_USER', 'root')
+DB_PASSWORD = os.getenv('DB_PASSWORD', '1234')
+# 宿主机默认用本机那份 redis-cli.exe；容器里换成 redis-tools 的 redis-cli
+REDIS_CLI = os.getenv('REDIS_CLI', r'D:\tools\redis\redis-cli.exe')
+REDIS_HOST = os.getenv('REDIS_HOST', '127.0.0.1')
+REDIS_PORT = int(os.getenv('REDIS_PORT', '6380'))
+# 后端地址：容器内走 nginx（http://nginx/api），宿主机直连 8080
+API_BASE = os.getenv('API_BASE', 'http://localhost:8080')
 ADMIN_USER, ADMIN_PASS = 'pfadmin', 'Admin123456'
 # 基础账号（「用户/角色/权限」基础表数据，复位时保留，其余业务测试账号一并删除）
 BASE_USERS = ('malluser', 'sysadmin', 'productops', 'ordersvc', 'pfadmin')
@@ -207,7 +216,7 @@ def parse_args():
 
 def redis_do(db, *args):
     try:
-        return subprocess.run([REDIS_CLI, '-p', str(REDIS_PORT), '-n', str(db)] + list(args),
+        return subprocess.run([REDIS_CLI, '-h', REDIS_HOST, '-p', str(REDIS_PORT), '-n', str(db)] + list(args),
                               capture_output=True, text=True, timeout=10).stdout.strip()
     except Exception as e:
         print('    [warn] redis 调用失败 %s：%s' % (args, e))

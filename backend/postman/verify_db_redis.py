@@ -10,15 +10,29 @@ Postman 只能看接口响应（业务码 / 消息 / 格式），查不了数据
 用法：
   python verify_db_redis.py
 """
+import os
 import subprocess
 import json
 import pymysql
 from datetime import datetime
 
-DB = dict(host='127.0.0.1', port=3306, user='root', password='1234',
-          database='peakflow_test', charset='utf8mb4')
-REDIS_CLI = r'D:\tools\redis\redis-cli.exe'
-REDIS_PORT = 6380
+# 连接参数一律走环境变量，默认值 = 「宿主机连 compose 发布的端口」这一场景。
+# 在测试容器（tester）里跑时由 compose 注入 DB_HOST=mysql / DB_PORT=3306 /
+# REDIS_HOST=redis / REDIS_PORT=6379，脚本无需改动。
+DB = dict(
+    host=os.getenv('DB_HOST', '127.0.0.1'),
+    # 容器 MySQL 默认发布到 3307（3306 是系统 MySQL80）
+    port=int(os.getenv('DB_PORT', '3307')),
+    user=os.getenv('DB_USER', 'root'),
+    password=os.getenv('DB_PASSWORD', '1234'),
+    database=os.getenv('DB_NAME', 'peakflow_test'),
+    charset='utf8mb4',
+)
+# 宿主机默认用本机那份 redis-cli.exe；容器里换成 redis-tools 的 redis-cli
+REDIS_CLI = os.getenv('REDIS_CLI', r'D:\tools\redis\redis-cli.exe')
+REDIS_HOST = os.getenv('REDIS_HOST', '127.0.0.1')
+REDIS_PORT = int(os.getenv('REDIS_PORT', '6380'))
+REDIS_DB = str(os.getenv('REDIS_DATABASE', '1'))
 
 SECOND_SECKILL_PID = 10  # 第二个秒杀测试商品（与 setup_test_data.py 默认 --seckill-ids 5,10 对齐）
 
@@ -30,7 +44,7 @@ WARN = '△'
 def redis_cmd(*args):
     """调用 redis-cli，返回 stdout 字符串。"""
     try:
-        out = subprocess.run([REDIS_CLI, '-p', str(REDIS_PORT), '-n', '1'] + list(args),
+        out = subprocess.run([REDIS_CLI, '-h', REDIS_HOST, '-p', str(REDIS_PORT), '-n', REDIS_DB] + list(args),
                              capture_output=True, text=True, timeout=5)
         return out.stdout.strip()
     except Exception as e:
