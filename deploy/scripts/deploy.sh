@@ -312,13 +312,23 @@ fi
 # ---------------------------------------------------------------------------
 if [ "$DRY_RUN" = "0" ]; then
     step "冒烟测试（本机 curl 走 nginx）"
-    BASE="http://127.0.0.1:${NGINX_PORT}"
+    # ⚠️ 启用 HTTPS 后，80 端口一律 301 跳转到 443（坑 #18 的姊妹问题）：
+    #    冒烟必须打真实的服务入口 —— HTTPS 站点探 https://127.0.0.1（-k 跳过
+    #    证书的域名校验，只验「nginx + 证书 + 后端链路通不通」），否则会
+    #    把本来健康的站点误报成「冒烟失败」。
+    if [ "$USE_HTTPS" = "1" ]; then
+        BASE="https://127.0.0.1"
+        CURL_TLS=(-k)
+    else
+        BASE="http://127.0.0.1:${NGINX_PORT}"
+        CURL_TLS=()
+    fi
     SMOKE_FAIL=0
 
     probe() {   # probe <描述> <期望码> <curl 参数...>
         local desc="$1" want="$2"; shift 2
         local code
-        code="$(curl -s -o /dev/null -m 15 -w '%{http_code}' "$@" 2>/dev/null || echo 000)"
+        code="$(curl -s -o /dev/null -m 15 -w '%{http_code}' "${CURL_TLS[@]}" "$@" 2>/dev/null || echo 000)"
         if [ "$code" = "$want" ]; then
             ok "$desc → $code"
         else
@@ -333,7 +343,7 @@ if [ "$DRY_RUN" = "0" ]; then
     probe "POST /api/product/page"   200 -X POST -H 'Content-Type: application/json' -d '{"pageNum":1,"pageSize":5}' "$BASE/api/product/page"
 
     # 安全响应头（生产 nginx 配置里 include 出来的那四个）
-    HDRS="$(curl -s -D - -o /dev/null -m 15 "$BASE/" 2>/dev/null || true)"
+    HDRS="$(curl -s -D - -o /dev/null -m 15 "${CURL_TLS[@]}" "$BASE/" 2>/dev/null || true)"
     # 含 HSTS：它和其余 4 个头放在同一个 snippet 里（见
     # deploy/nginx/snippets/peakflow-security-headers.inc 的说明），
     # HTTP / HTTPS 两种形态下都会下发，所以这里恒检查。
