@@ -1,0 +1,166 @@
+# ============================================================================
+# PeakFlow · Git 忽略规则
+# ----------------------------------------------------------------------------
+# 创建日期：2026-10-16      作用范围：仓库根目录（E:\PeakFlow）
+#
+# 【必须入库，切勿忽略】—— 这些是项目能否被复现的关键，本文件刻意不匹配它们：
+#   .env.example                                        环境变量模板（真实 .env 被忽略）
+#   backend/.mvn/wrapper/maven-wrapper.properties       mvnw 依赖它，缺了无法构建
+#   backend/pom.xml、backend/src/**                     源码与构建描述
+#   backend/mvnw、backend/mvnw.cmd                      Maven Wrapper 启动脚本
+#   frontend/package.json、frontend/package-lock.json   依赖清单与版本锁定
+#   frontend/vite.config.js、vitest*.config.js          构建与测试配置
+#   deploy/mysql/init/*.sql、deploy/mysql/prod/*.sql    数据库结构与种子数据
+#   docs/、各 README.md、backend/postman/*.py            文档与测试脚本
+#
+# 【本文件当前挡掉的规模】
+#   frontend/node_modules/     约 19,584 个文件 / 168 MB
+#   backend/logs/              22 个文件 / 41 MB
+#   backend/target/            246 个文件 / 2.9 MB
+#   newman 报告                2 个文件 / 4.3 MB
+#   → 不加本文件直接 `git add .` 会引入近 2 万个无关文件
+#
+# 【验证规则是否生效】（初始化仓库后执行）
+#   git status --ignored             列出被忽略的内容
+#   git check-ignore -v <路径>        查看某文件被哪条规则命中
+# ============================================================================
+
+
+# ---------------------------------------------------------------------------
+# 一、环境变量与凭据 —— 最高优先级，绝不入库
+# ---------------------------------------------------------------------------
+# 本项目所有敏感项（JWT_SECRET / DB_PASSWORD / MOCK_PAY_SECRET / OSS_ACCESS_KEY_*）
+# 都通过环境变量注入，真实值只应存在于本机 .env 或部署平台，绝不能进版本库。
+.env
+.env.*
+# .env.example 是给协作者看的模板，必须保留。
+# 否定规则必须写在 .env.* 之后，否则会被上面一行吃掉。
+!.env.example
+
+# 证书与密钥文件
+*.pem
+*.key
+*.p12
+*.jks
+*.keystore
+
+
+# ---------------------------------------------------------------------------
+# 二、Java / Maven 后端生成物
+# ---------------------------------------------------------------------------
+# 不限层级：backend/target/ 与将来可能出现的其他模块 target/ 都会被忽略
+target/
+*.class
+*.jar
+*.war
+*.ear
+# 用 ! 显式放行 Maven Wrapper 的 jar（本项目 distributionType=only-script，
+# 实际只有 .properties，没有 jar；这行是防御性的，防止将来切模式后误伤）
+!**/.mvn/wrapper/maven-wrapper.jar
+
+# JVM 崩溃转储与飞行记录
+hs_err_pid*
+replay_pid*
+*.hprof
+
+
+# ---------------------------------------------------------------------------
+# 三、日志
+# ---------------------------------------------------------------------------
+# logs/ 只带结尾斜杠，因此匹配任意层级的 logs 目录：
+#   backend/logs/dev|test|prod（logback 按 profile 分目录）
+#   以及将来从仓库根目录启动时产生的 ./logs/
+logs/
+# 控制台重定向输出（backend/logs/*.log 已被 logs/ 覆盖，这里兜住散落在别处的日志）
+*.log
+
+
+# ---------------------------------------------------------------------------
+# 四、Node / 前端生成物
+# ---------------------------------------------------------------------------
+node_modules/
+dist/
+dist-ssr/
+.vite/
+coverage/
+*.local
+
+# 包管理器的调试日志
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# 各构建工具缓存
+.eslintcache
+.cache/
+
+
+# ---------------------------------------------------------------------------
+# 五、测试报告 —— 可随时重新生成，体积大
+# ---------------------------------------------------------------------------
+# newman 每跑一次都会重写这两个文件（合计约 4.3 MB）。
+# 测试套件本身（build_collection.py + README.md）已入库，报告可随时用
+#   newman run PeakFlow-API.postman_collection.json -e env-test.postman_environment.json
+# 重新生成，所以不入库。
+#
+# ⚠️ 如果你希望把「124 请求 / 779 断言 / 0 失败」的回归报告作为证据长期保留，
+#    删掉下面这一行即可。
+backend/postman/newman-report*.json
+
+
+# ---------------------------------------------------------------------------
+# 六、Python —— backend/postman 下的辅助脚本会产生缓存
+# ---------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+
+
+# ---------------------------------------------------------------------------
+# 七、IDE / 编辑器
+# ---------------------------------------------------------------------------
+# 整个忽略 .idea：避免 workspace.xml 中的本机绝对路径、IDE 索引缓存污染提交历史。
+# 若你希望保留团队共享的编码/编译设置，把下面一行换成：
+#   .idea/*
+#   !.idea/compiler.xml
+#   !.idea/encodings.xml
+#   !.idea/misc.xml
+**/.idea/
+*.iml
+*.ipr
+*.iws
+out/
+
+# VS Code：忽略个人工作区设置
+.vscode/
+
+
+# ---------------------------------------------------------------------------
+# 八、操作系统与临时文件
+# ---------------------------------------------------------------------------
+# macOS
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+# Linux
+*~
+
+# 各类编辑器备份 / 交换 / 冲突残留
+*.tmp
+*.temp
+*.swp
+*.swo
+*.bak
+*.orig
+*.rej

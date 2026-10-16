@@ -1,0 +1,83 @@
+# ============================================================================
+# PeakFlow · Git 文本 / 换行符规则
+# ----------------------------------------------------------------------------
+# 创建日期：2026-10-16      作用范围：仓库根目录（E:\PeakFlow）
+#
+# 【为什么必须有这个文件】
+#   换行符一旦交给本机配置决定，就是三个人三套行为：
+#     本机 .git/config   → 可能 core.autocrlf=true
+#     Git 安装时的默认值  → Windows 上通常也是 true
+#     别人 clone / CI / Docker → 又是另一套
+#   实测本机 system 级配置（PortableGit/etc/gitconfig）里 core.autocrlf=true，
+#   而 Windows 上 `* text=auto` 单独使用时 core.eol 默认是 native(= CRLF)，
+#   结果就是「仓库里是 LF、checkout 出来是 CRLF」——不可预测。
+#
+#   本文件是**入库的**，用显式 eol 把行为钉死，任何机器、任何 CI 上完全一致。
+#
+# 【本项目的选择：除 .cmd/.bat 外，全部 LF（仓库与工作区都是）】
+#   理由：本项目马上要 Docker 化，构建上下文取自工作区。
+#        工作区与仓库、与 Linux 容器三处完全一致，才不会有"本地能跑、镜像里报错"的玄学问题。
+#
+# 【不这样做会踩的坑（本项目差点踩到）】
+#   backend/mvnw 是 POSIX shell 脚本。若以 CRLF 落盘并被 Linux / WSL / Docker 执行：
+#       bash: ./mvnw: /bin/sh^M: bad interpreter: No such file or directory
+#
+# 【如果你更希望 Windows 工作区是 CRLF】
+#   把下面第一行改成：  * text=auto
+#   （即去掉 eol=lf）。这样仓库仍是 LF，但 Windows 工作区是 CRLF。
+#   代价：工作区与 Docker 里看到的不一致，且 `git ls-files --eol` 会显示 i/lf w/crlf。
+#
+# 【验证】
+#   git ls-files --eol                     # 期望除 .cmd 外全是 i/lf w/lf
+#   git check-attr -a backend/mvnw         # 期望 text: set / eol: lf
+# ============================================================================
+
+# 默认：识别文本文件，仓库与工作区都统一用 LF
+# 显式写 eol=lf 是关键 —— 它让工作区不再受 core.autocrlf / core.eol 影响
+* text=auto eol=lf
+
+
+# ---------------------------------------------------------------------------
+# Windows 批处理 —— 必须是 CRLF（这是 .bat/.cmd 的语法要求，改 LF 会执行失败）
+# 必须写在通配规则之后才能覆盖它
+# ---------------------------------------------------------------------------
+*.cmd  text eol=crlf
+*.bat  text eol=crlf
+
+
+# ---------------------------------------------------------------------------
+# 二进制 —— 禁止任何换行符转换（转换会直接损坏文件内容）
+# ---------------------------------------------------------------------------
+# 本项目当前只有 1 个二进制文件：backend/postman/fixtures/test-avatar.png
+# 其余为将来引入图片 / 字体 / 文档时的防御性声明
+*.png    binary
+*.jpg    binary
+*.jpeg   binary
+*.gif    binary
+*.ico    binary
+*.webp   binary
+*.bmp    binary
+*.pdf    binary
+*.zip    binary
+*.gz     binary
+*.7z     binary
+*.jar    binary
+*.war    binary
+*.woff   binary
+*.woff2  binary
+*.ttf    binary
+*.eot    binary
+*.xlsx   binary
+*.docx   binary
+*.pptx   binary
+
+# SVG 是文本，走上面的 LF 规则即可（显式声明以免被某些工具的 binary 探测误判）
+*.svg    text eol=lf
+
+
+# ---------------------------------------------------------------------------
+# GitHub 展示优化
+# ---------------------------------------------------------------------------
+# Postman 集合（约 247 KB）由 backend/postman/build_collection.py 生成，
+# 标记后在 GitHub 上折叠显示、不参与语言统计（否则会误报项目"主要是 JSON"）
+backend/postman/PeakFlow-API.postman_collection.json linguist-generated=true
