@@ -28,7 +28,7 @@ public interface SeckillOrderService {
     // 新增秒杀商品（管理员）—— 用秒杀域专用 DTO，不复用普通商品的 AddProductDto
     void addProduct(AddSeckillProductDto dto);
 
-    // 更新秒杀商品（管理员）—— 用秒杀域专用 DTO，不复用普通商品的 UpdateProductDto
+    // 用秒杀域专用 DTO，不复用普通商品的 UpdateProductDto
     void updateProduct(UpdateSeckillProductDto dto);
 
     // 删除秒杀商品（管理员）

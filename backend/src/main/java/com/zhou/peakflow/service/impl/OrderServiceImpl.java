@@ -674,7 +674,8 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
         // 条件更新：状态 + 版本 + 无进行中退款，三合一原子
         int updateResult = orderMapper.completeReceiptIfNoRefund(orderId, order.getVersion());
         if (updateResult == 0) {
-            // 可能原因：
+            // rows == 0 有两种可能：存在进行中的退款单，或状态 / version 被并发改过。
+            // 回查一次退款单，才能给出「先处理完退款」还是「刷新后重试」这类准确提示
             RefundRecord processing = refundRecordMapper.selectOpenByOrderId(orderId);
             if (processing != null) {
                 throw new BusinessException("该订单存在进行中的退款单，请先处理完退款");
@@ -940,7 +941,6 @@ public class OrderServiceImpl extends ServiceImpl<OrderMapper, Order> implements
             wrapper.eq(Order::getIsSeckill, queryDto.getIsSeckill());
         }
 
-        // 创建时间范围
         if (queryDto.getCreateTimeStart() != null) {
             wrapper.ge(Order::getCreateTime, queryDto.getCreateTimeStart());
         }

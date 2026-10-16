@@ -27,7 +27,6 @@ public class TransactionMonitorAspect {
         String methodName = joinPoint.getSignature().toShortString();
 
         try {
-            // 执行被@Transactional标记的业务方法
             return joinPoint.proceed();
         } finally {
             long costMs = System.currentTimeMillis() - start;

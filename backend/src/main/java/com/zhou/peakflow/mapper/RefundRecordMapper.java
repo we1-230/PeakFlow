@@ -176,7 +176,8 @@ public interface RefundRecordMapper extends BaseMapper<RefundRecord> {
 
     // ---- 申请：原子落库 ----
 
-    // 申请退款·原子落库：在"订单确实可退"的前提下插入退款单
+    // 申请退款·原子落库：INSERT ... SELECT + WHERE 条件，把「订单可退」的校验与插入压进一条语句，
+    // 避免"先查后插"之间被并发改动；未命中任何行即返回 0，由调用方按「订单状态已变更」处理
     @Insert("INSERT INTO refund_record " +
             "(refund_no, order_id, order_no, user_id, out_trade_no, refund_amount, refund_type, " +
             " refund_channel, reason, return_logistics_company, return_tracking_no, " +

@@ -106,7 +106,9 @@ public class RefundTxService {
             throw new BusinessException(ResultCode.REFUND_AMOUNT_ERROR);
         }
 
-        // 6. 原子落库（防重第二、三层）：可退条件写在 SQL 的 WHERE 里，
+        // 6. 原子落库（防重第二、三层）：把「订单确实可退」的条件写进 INSERT ... SELECT 的 WHERE，
+        //    让校验与插入在同一条 SQL 里完成，消除"先查后插"之间的竞态窗口；
+        //    第三层由唯一索引 uk_open_order 兜底 —— 并发插入只有一个能成功，另一个走 DuplicateKeyException
         String refundNo = generateRefundNo(order);
         Integer status = autoApprove(order, refundAmount)
                 ? RefundStatus.REFUNDING.getCode()
@@ -311,15 +313,10 @@ public class RefundTxService {
 
     /**
      * 校验一笔「退款中」的退款单确实已经卡住（允许重试）。
-     *
-     * 为什么用 {@code update_time} 当锚点：进入「退款中」之后如果没有任何人推动它，
-     * {@code update_time} 就一直停在那一刻；而每次重试（{@code markRefunding}）都会刷新它。
-     * 于是一个字段同时承担两个职责：卡住计时与重试限频 ——
-     * 每重试一次就要再等 N 分钟，不需要额外加重试计数字段。
-     *
-     * 时间缺失（脏数据）时不阻拦，交给 {@code sweepTimeoutRefunds} 的告警兜底；
-     * 这里的方向与"退款判不准就拒绝"相反是刻意的：重试是幂等且安全的动作
-     * （沿用同一退款单号），放宽不会造成资损。
+     * 锚点用 update_time 而非额外加一个重试计数字段：进入「退款中」后没人推动它就停在那一刻，
+     * 每次重试（markRefunding）又会刷新它，于是一个字段同时承担「卡住计时」与「重试限频」两个职责——
+     * 每重试一次就要再等 N 分钟。时间缺失（脏数据）时不阻拦，交给 sweepTimeoutRefunds 告警兜底；
+     * 此处与「退款判不准就拒绝」方向相反是刻意的：重试幂等且沿用同一退款单号，放宽不会造成资损。
      */
     private void assertRefundingStuck(RefundRecord record) {
         int delayMinutes = refundProperties.resolveRetryDelayMinutes();

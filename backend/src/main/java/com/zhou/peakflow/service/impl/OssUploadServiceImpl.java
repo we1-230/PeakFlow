@@ -38,7 +38,6 @@ public class OssUploadServiceImpl implements OssUploadService {
             throw new BusinessException("文件不能为空");
         }
 
-        // 获取原始文件名
         String originFilename = file.getOriginalFilename();
         if (originFilename == null || originFilename.isEmpty()) {
             log.warn("图片上传失败：文件名为空");
@@ -58,7 +57,6 @@ public class OssUploadServiceImpl implements OssUploadService {
             throw new BusinessException("仅支持jpg/jpeg/png/gif/webp格式的图片文件");
         }
 
-        // 生成唯一文件名
         String extension = originFilename.substring(originFilename.lastIndexOf("."));
         String filename = UUID.randomUUID().toString() + extension;
 

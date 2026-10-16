@@ -264,11 +264,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     }
 
 
-    // 发送告警通知（模拟实现）
+    /** 模拟实现：仅打日志。真实项目在此对接钉钉 / 企业微信 / 短信等告警通道 */
     private void sendAlertNotification(String message, String username) {
         log.error("【告警】{}，username={}", message, username);
-        // 实际项目中可以对接钉钉/企业微信/短信告警
-        // alertService.send(message);
     }
 
 
@@ -357,7 +355,6 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         return userInfoDto;
     }
 
-    // 修改密码
     @Override
     @Transactional(rollbackFor = Exception.class)
     public boolean changePassword(String username, String oldPassword, String newPassword) {
@@ -395,13 +392,11 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     }
 
 
-    // 修改头像
     @Override
 
     public String changAvatar(String token, MultipartFile file) {
         log.info("开始修改头像，文件大小={} bytes", file.getSize());
 
-        // 获取相应用户
         String username = jwtUtil.getUsernameFromToken(token);
         log.debug("修改头像，username={}", username);
 
@@ -451,22 +446,18 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         return url;
     }
 
-    // 修改昵称
     @Override
     public boolean changeNickname(String token, String nickname) {
         log.info("开始修改昵称，nickname={}", nickname);
 
-        // 判断用户昵称格式
         if (!nickname.matches( NICKNAME)) {
             log.warn("修改昵称失败：昵称格式不正确，nickname={}", nickname);
             throw new BusinessException("昵称格式不正确");
         }
 
-        // 获取相应用户
         String username = jwtUtil.getUsernameFromToken(token);
         log.debug("修改昵称，username={}", username);
 
-        // 修改数据库用户昵称
         userMapper.updateNicknameByUsername(nickname, username);
 
         log.info("昵称修改成功，username={}, nickname={}", username, nickname);
@@ -474,7 +465,6 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         return true;
     }
 
-    // 查询用户列表（分页）
     @Override
     public PageVo<User> listUsers(AdminUserPageDto adminUserPageDto) {
         log.info("开始分页查询用户列表，pageNum={}, pageSize={}, username={}, status={}",
@@ -488,7 +478,6 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         int pageSize = adminUserPageDto.getPageSize();
         Page<User> page = new Page<>(pageNum, pageSize);
 
-        // 构建查询条件
         QueryWrapper<User> wrapper = new QueryWrapper<>();
 
         // 用户名模糊查询
@@ -513,7 +502,6 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             log.debug("添加状态查询条件：status={}", status);
         }
 
-        // 执行分页查询
         Page<User> p = this.page(page, wrapper);
 
         log.info("查询用户列表成功，返回{}条记录，总记录数{}",
@@ -588,7 +576,6 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             throw new BusinessException("重置用户不存在");
         }
 
-        // 生成随机新密码
         String newPassword = randomPassword();
 
         String encodedPassword = passwordEncoder.encode(newPassword);
@@ -612,7 +599,6 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         return newPassword;
     }
 
-    // 生成随机明文密码
     private String randomPassword() {
         // 字符池：去掉容易混淆的 O,0,1,l,I
         char[] chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789".toCharArray();
@@ -637,7 +623,6 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         String oldPassword = updateUserPasswordDto.getOldPassword();
         String newPassword = updateUserPasswordDto.getNewPassword();
 
-        // 获取用户
         User user = userMapper.selectByUsername(username);
         if (user == null) {
             log.warn("强制修改密码失败：用户不存在，username={}", username);
@@ -688,7 +673,6 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     // 检查账号是否被锁定
     private void checkAccountLocked(String account) {
         String lockKey = LOGIN_LOCK + account;
-        // 删除了原来2条轻量redis埋点，减少日志噪音
         Boolean isLocked = redisTemplate.hasKey(lockKey);
         if (Boolean.TRUE.equals(isLocked)) {
             Long expireTime = redisTemplate.getExpire(lockKey, TimeUnit.MINUTES);

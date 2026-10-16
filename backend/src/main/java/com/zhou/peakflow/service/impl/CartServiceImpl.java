@@ -98,7 +98,6 @@ public class CartServiceImpl implements CartService {
         log.info("{}加入购物车成功，totalQty={}", LOG_PREFIX, totalQty);
     }
 
-    // 修改购物车中某商品的数量（覆盖为目标值）
     @Override
     public void updateQuantity(Long userId, Long productId, Integer quantity) {
         log.info("{}修改数量 | userId={} | productId={} | targetQuantity={}",
@@ -132,7 +131,6 @@ public class CartServiceImpl implements CartService {
         log.info("{}修改数量成功，productId={}, quantity={}", LOG_PREFIX, productId, quantity);
     }
 
-    // 删除购物车中的单个商品
     @Override
     public void removeFromCart(Long userId, Long productId) {
         log.info("{}删除商品 | userId={} | productId={}", LOG_PREFIX, userId, productId);
@@ -183,7 +181,6 @@ public class CartServiceImpl implements CartService {
         log.info("{}清空购物车成功", LOG_PREFIX);
     }
 
-    // 查询购物车列表
     @Override
     public List<Cart> getCartList(Long userId) {
         log.info("{}获取购物车列表 | userId={}", LOG_PREFIX, userId);
@@ -255,7 +252,6 @@ public class CartServiceImpl implements CartService {
         return result;
     }
 
-    // 设置某商品的选中态
     @Override
     public void selectProduct(Long userId, Long productId, Integer selected) {
         log.info("{}设置选中态 | userId={} | productId={} | selected={}",
@@ -284,7 +280,6 @@ public class CartServiceImpl implements CartService {
         log.info("{}选中态更新成功，selected={}", LOG_PREFIX, select ? 1 : 0);
     }
 
-    // 获取已选中的购物车商品（结算 / 下单用）
     @Override
     public List<Cart> getSelectedProducts(Long userId) {
         return getCartList(userId).stream()

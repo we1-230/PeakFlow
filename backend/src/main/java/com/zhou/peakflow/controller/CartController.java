@@ -66,7 +66,7 @@ public class CartController extends BaseController {
         return Result.success("清空成功");
     }
 
-    // 获取购物车列表（只读，无需限流）
+    // 只读，无需限流
     @GetMapping("/list")
     public Result<List<Cart>> list(@RequestHeader("Authorization") String token) {
         log.info("获取购物车列表请求");

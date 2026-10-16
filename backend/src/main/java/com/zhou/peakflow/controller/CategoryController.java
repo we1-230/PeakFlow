@@ -28,14 +28,13 @@ public class CategoryController extends BaseController{
 
     private final StringRedisTemplate stringRedisTemplate;
 
-    // 查询所有分类（公开接口）
     @GetMapping("/list")
     public Result<List<Category>> getCategories() {
         log.info("查询所有分类");
         List<Category> categories = categoryService.getEnabledCategories();
         return Result.success(categories);
     }
-    // 新增分类（管理员）
+
     @PreAuthorize("hasAuthority('category:manage')")
     @PostMapping("/add")
     public Result<Void> addCategory(@Valid @RequestBody AddCategoryDto categoryDto) {
@@ -51,7 +50,6 @@ public class CategoryController extends BaseController{
         return Result.success("新增成功");
     }
 
-    // 更新分类（管理员）
     @PreAuthorize("hasAuthority('category:manage')")
     @PutMapping("/update")
     public Result<Void> updateCategory(@Valid @RequestBody UpdateCategoryDto categoryDto) {
@@ -69,7 +67,6 @@ public class CategoryController extends BaseController{
         return Result.success("更新成功");
     }
 
-    // 删除分类（管理员）
     @PreAuthorize("hasAuthority('category:manage')")
     @DeleteMapping("/delete/{id}")
     public Result<Void> deleteCategory(@PathVariable Long id) {

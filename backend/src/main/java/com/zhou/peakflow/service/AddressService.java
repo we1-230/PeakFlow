@@ -15,13 +15,12 @@ public interface AddressService extends IService<Address> {
     // 查询用户的所有地址（默认地址置顶）
     List<Address> getUserAddresses(Long userId);
 
-    // 获取用户默认地址，未设置时抛业务异常引导用户去设置
+    // 未设置时抛业务异常引导用户去设置
     Address getDefaultAddress(Long userId);
 
     // 新增地址（新增时不会自动成为默认，避免出现多个默认地址）
     void addAddress(AddAddressDto addAddressDto, Long userId);
 
-    // 更新地址
     void updateAddress(UpdateAddressDto dto, Long userId);
 
     // 删除地址（删默认地址后不会自动补新的，由用户显式设置）

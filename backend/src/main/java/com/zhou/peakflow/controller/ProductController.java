@@ -26,7 +26,6 @@ public class ProductController extends BaseController{
 
     private final ProductService productService;
 
-    // 首页商品列表（分页）
     @PostMapping("/page")
     public Result<PageVo<Product>> page(@RequestBody @Valid SelectProductDto selectProductDto) {
         Integer pageSize = selectProductDto.getPageSize() != null ? selectProductDto.getPageSize() : DEFAULT_PAGE_SIZE;
@@ -46,7 +45,6 @@ public class ProductController extends BaseController{
         return Result.success(product);
     }
 
-    // 新增商品（管理员）
     @PreAuthorize("hasAuthority('product:manage')")
     @PostMapping("/add")
     public Result<Void> add(@Valid @RequestBody AddProductDto addProductDto) {
@@ -55,7 +53,6 @@ public class ProductController extends BaseController{
         return Result.success("新增成功");
     }
 
-    // 更新商品（管理员）
     @PreAuthorize("hasAuthority('product:manage')")
     @PutMapping("/update")
     public Result<Void> update(@Valid @RequestBody UpdateProductDto updateProductDto) {
@@ -64,7 +61,6 @@ public class ProductController extends BaseController{
         return Result.success("更新成功");
     }
 
-    // 删除商品（管理员）
     @PreAuthorize("hasAuthority('product:manage')")
     @DeleteMapping("/delete/{id}")
     public Result<Void> delete(@PathVariable Long id) {
@@ -73,7 +69,6 @@ public class ProductController extends BaseController{
         return Result.success("删除成功");
     }
 
-    // 上下架商品（管理员）
     @PreAuthorize("hasAuthority('product:manage')")
     @PutMapping("/status/{id}")
     public Result<Void> updateStatus(@PathVariable Long id, @RequestParam Integer status) {

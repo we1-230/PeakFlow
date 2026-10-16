@@ -14,7 +14,7 @@ public interface ProductService extends IService<Product> {
     // 分页查询商品（首页展示）：缓存 + 分布式锁 + 空值缓存防穿透
     PageVo<Product> pageQuery(Integer pageNum, Integer pageSize, Long categoryId, String keyword);
 
-    // 查询商品详情：同上三件套（防穿透 / 防击穿 / 防雪崩）
+    // 与列表同策略：缓存 + 分布式锁 + 空值缓存（防穿透 / 防击穿 / 防雪崩）
     Product getProductDetail(Long id);
 
     // 管理员新增商品，成功后清理分页缓存

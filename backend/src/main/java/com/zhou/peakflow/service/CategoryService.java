@@ -18,7 +18,6 @@ public interface CategoryService extends IService<Category> {
     // 新增分类（名称唯一）
     void addCategory(AddCategoryDto categoryDto);
 
-    // 更新分类
     void updateCategory(UpdateCategoryDto categoryDto);
 
     // 删除分类（分类下有商品时拒绝）

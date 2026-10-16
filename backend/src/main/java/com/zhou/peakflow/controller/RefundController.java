@@ -47,7 +47,7 @@ public class RefundController extends BaseController {
         return Result.success("申请已提交，请等待审核", refundId);
     }
 
-    // 查询退款单详情（含审核意见、失败原因，前端据此展示进度）
+    // 含审核意见与失败原因，前端据此展示进度
     @GetMapping("/detail/{refundId}")
     @Operation(summary = "查询退款单详情")
     public Result<RefundVo> detail(@RequestHeader("Authorization") String token,

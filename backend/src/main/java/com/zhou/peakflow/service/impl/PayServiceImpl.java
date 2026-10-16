@@ -75,7 +75,6 @@ public class PayServiceImpl implements PayService {
         }
     }
 
-    // 处理第三方异步通知
     @Override
     @Transactional(rollbackFor = Exception.class)
     public String handleNotify(PayNotifyDto dto, String rawBody) {
@@ -139,11 +138,14 @@ public class PayServiceImpl implements PayService {
             log.error("支付单已关闭但收到成功回调，需人工介入！outTradeNo={}, status={}",
                     dto.getOutTradeNo(), latest.getStatus());
 
-            // 返回 failure，让支付宝继续重推（此时需要人工处理）
+            // 返回 failure，让第三方继续重推（此时需要人工处理）
             return "failure";
         }
 
         // 6. 改订单状态：待付款 → 已付款（乐观锁）
+        // 顺序刻意是「先落支付单、再改订单」，且两步同事务：支付单是资金凭证，订单状态是业务视图。
+        // markOrderPaid 在乐观锁冲突时会抛异常，于是支付单的入账也一并回滚，应答 failure 让第三方重推。
+        // 宁可让第三方重推，也不能留下「钱已收、订单仍待付款」的悬挂状态。
         orderService.markOrderPaid(record.getOrderId());
 
         log.info("{}支付回调处理成功，outTradeNo={}, orderId={}", LOG_PREFIX, dto.getOutTradeNo(), record.getOrderId());
@@ -151,7 +153,6 @@ public class PayServiceImpl implements PayService {
     }
 
 
-    // 查询支付结果
     @Override
     public PayRecord query(Long userId, String outTradeNo) {
         PayRecord record = payRecordMapper.selectByOutTradeNo(outTradeNo);
@@ -216,7 +217,6 @@ public class PayServiceImpl implements PayService {
         return closed;
     }
 
-    // 生成商户订单号
     private String generateOutTradeNo(Order order) {
         return "PAY" + order.getOrderNo() + "-" + System.currentTimeMillis();
     }

@@ -29,7 +29,7 @@ public interface RefundService {
     // 管理员作废退款单：仅"退款失败"可作废，是渠道确实退不了时释放订单占用的泄压阀
     void close(Long operatorId, String operatorName, Long refundId, String remark);
 
-    // 处理第三方退款结果异步通知，是全流程唯一能"确认退款"的入口，返回 success 表示已受理
+    // 全流程唯一能"确认退款"的入口，返回 success 表示已受理
     String handleRefundNotify(RefundNotifyDto dto, String rawBody);
 
     // 查询退款单详情（只能查自己的）

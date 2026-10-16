@@ -37,6 +37,5 @@ public class OrderItem {
     // 小计金额
     private BigDecimal subtotal;
 
-    // 创建时间
     private LocalDateTime createTime;
 }

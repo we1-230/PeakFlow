@@ -41,7 +41,6 @@ public class AdminController extends BaseController{
     private final CategoryMapper categoryMapper;
     private final OrderMapper orderMapper;
 
-    // 查询用户列表（分页）
     @PreAuthorize("hasAuthority('user:manage')")
     @PostMapping("/list")
     public Result<PageVo<User>> listUser(@RequestBody @Valid AdminUserPageDto adminUserPageDto) {

@@ -10,6 +10,6 @@ import com.zhou.peakflow.vo.PageVo;
  */
 public interface UserLoginLogService extends IService<UserLoginLog> {
 
-    // 查询登录日志：管理员可查任意用户，普通用户只能查自己的
+    // 管理员可查任意用户，普通用户只能查自己的
     PageVo<UserLoginLog> getUserLoginLog(String token, AdminUserPageDto adminUserPageDto);
 }

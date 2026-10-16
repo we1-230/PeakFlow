@@ -14,13 +14,12 @@ public interface CartService {
     // 修改某商品的数量（覆盖为目标值）
     void updateQuantity(Long userId, Long productId, Integer quantity);
 
-    // 删除购物车中的单个商品
     void removeFromCart(Long userId, Long productId);
 
     // 清空购物车
     void clearCart(Long userId);
 
-    // 获取购物车列表：读取时自动剔除并清理失效商品（已删除 / 已下架 / 库存不足）
+    // 读取时自动剔除并清理失效商品（已删除 / 已下架 / 库存不足）
     List<Cart> getCartList(Long userId);
 
     // 批量移除商品（下单成功后清理）

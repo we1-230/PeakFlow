@@ -35,7 +35,7 @@ public class UserController extends BaseController {
     private final UserLoginLogService userLoginLogService;
 
 
-    // 获取用户信息（读接口，不需要严格限流）
+    // 读接口，不需要严格限流
     @GetMapping("/info")
     public Result<UserInfoDto> getUserInfo(@RequestHeader("Authorization") String token) {
         log.info("获取用户信息请求");

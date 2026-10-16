@@ -32,7 +32,6 @@ public class AddressServiceImpl extends ServiceImpl<AddressMapper, Address> impl
     private static final int IS_DEFAULT_YES = 1;
     private static final int IS_DEFAULT_NO = 0;
 
-    // 查询当前用户地址列表（默认地址置顶，其余按创建时间倒序）
     @Override
     public List<Address> getUserAddresses(Long userId) {
         if (userId == null) {
@@ -48,7 +47,6 @@ public class AddressServiceImpl extends ServiceImpl<AddressMapper, Address> impl
         return this.list(wrapper);
     }
 
-    // 获取当前用户的默认地址
     @Override
     public Address getDefaultAddress(Long userId) {
         if (userId == null) {
@@ -106,7 +104,6 @@ public class AddressServiceImpl extends ServiceImpl<AddressMapper, Address> impl
         log.info("新增地址成功，id={}", address.getId());
     }
 
-    // 更新地址
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void updateAddress(UpdateAddressDto addressDto, Long userId) {
@@ -132,7 +129,6 @@ public class AddressServiceImpl extends ServiceImpl<AddressMapper, Address> impl
         log.info("更新地址成功，id={}", addressDto.getId());
     }
 
-    // 删除地址
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void deleteAddress(Long id, Long userId) {
@@ -161,7 +157,7 @@ public class AddressServiceImpl extends ServiceImpl<AddressMapper, Address> impl
         log.info("删除地址成功，id={}, userId={}, wasDefault={}", id, userId, wasDefault);
     }
 
-    // 设置默认地址（单条 SQL 原子切换，避免并发下出现多个默认地址）
+    // 单条 SQL 原子切换，避免并发下出现多个默认地址
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void setDefaultAddress(Long id, Long userId) {

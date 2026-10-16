@@ -42,7 +42,7 @@ public class SnowflakeIdGenerator {
     @Value("${snowflake.datacenter-id:1}")
     private long dataCenterId;
 
-    // 生成下一个 ID；synchronized 保证同毫秒序列自增不冲突
+    // synchronized 保证同毫秒序列自增不冲突
     public synchronized long nextId() {
         long timestamp = timeGen();
 

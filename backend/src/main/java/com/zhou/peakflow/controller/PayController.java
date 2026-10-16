@@ -61,7 +61,7 @@ public class PayController extends BaseController {
         }
     }
 
-    // 查询支付结果（前端轮询）
+    // 前端轮询
     @GetMapping("/query/{outTradeNo}")
     @Operation(summary = "查询支付结果")
     public Result<PayRecord> query(@RequestHeader("Authorization") String token,

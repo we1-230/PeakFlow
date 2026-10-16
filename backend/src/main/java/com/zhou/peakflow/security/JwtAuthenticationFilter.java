@@ -52,7 +52,6 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         String path = request.getRequestURI();
         log.debug("JWT过滤器处理请求：path={}, method={}", path, request.getMethod());
 
-        // 判断是否为白名单路径
         if (isWhiteList(path)) {
             log.debug("白名单路径，跳过认证：{}", path);
            filterChain.doFilter(request, response);
@@ -119,7 +118,6 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
     }
 
-    // 返回错误响应
     private void returnResult(HttpServletResponse response, int code, String msg) throws IOException {
         response.setContentType(CommonConstant.CONTENT_TYPE_JSON);
         response.setCharacterEncoding("UTF-8");

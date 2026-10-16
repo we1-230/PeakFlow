@@ -12,11 +12,9 @@ import java.time.LocalDateTime;
 @Data
 public abstract class BaseEntity {
 
-    // 创建时间（INSERT 时自动填充）
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createTime;
 
-    // 更新时间（INSERT / UPDATE 时自动填充）
     @TableField(fill = FieldFill.INSERT_UPDATE)
     private LocalDateTime updateTime;
 

@@ -74,7 +74,6 @@ public class SeckillOrderController extends BaseController {
         return Result.success(product);
     }
 
-    // 秒杀全量缓存预热（管理员）
     @PreAuthorize("hasAuthority('seckill:manage')")
     @GetMapping("/preheat/all")
     @Operation(summary = "秒杀缓存预热")
@@ -83,7 +82,6 @@ public class SeckillOrderController extends BaseController {
         return Result.success("预热成功");
     }
 
-    // 新增秒杀商品（管理员）
     @PreAuthorize("hasAuthority('seckill:manage')")
     @PostMapping("/add")
     @Operation(summary = "新增秒杀商品")
@@ -93,7 +91,7 @@ public class SeckillOrderController extends BaseController {
         return Result.success("新增成功");
     }
 
-    // 更新秒杀商品含库存（管理员）
+    // 会同时覆盖秒杀库存并同步 Redis；上下架另走 PUT /seckill/status/{id}
     @PreAuthorize("hasAuthority('seckill:manage')")
     @PutMapping("/update")
     @Operation(summary = "更新秒杀商品")
@@ -103,7 +101,6 @@ public class SeckillOrderController extends BaseController {
         return Result.success("更新成功");
     }
 
-    // 删除秒杀商品（管理员）
     @PreAuthorize("hasAuthority('seckill:manage')")
     @DeleteMapping("/delete/{id}")
     @Operation(summary = "删除秒杀商品")

@@ -26,7 +26,7 @@ public class AddressController extends BaseController  {
 
 
 
-    // 获取当前用户的所有地址（无缓存，需要限流保护 DB）
+    // 无缓存，直查 DB —— 需要限流保护
     @GetMapping("/list")
     public Result<List<Address>> list(@RequestHeader("Authorization") String token) {
         log.info("获取地址列表请求");
@@ -36,7 +36,7 @@ public class AddressController extends BaseController  {
         return Result.success(addresses);
     }
 
-    // 获取默认地址（无缓存，需要限流保护 DB）
+    // 无缓存，直查 DB —— 需要限流保护
     @GetMapping("/default")
     public Result<Address> getDefault(@RequestHeader("Authorization") String token) {
         log.info("获取默认地址请求");

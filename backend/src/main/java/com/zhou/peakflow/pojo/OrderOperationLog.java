@@ -41,6 +41,5 @@ public class OrderOperationLog {
     // 备注（如物流单号）
     private String remark;
 
-    // 创建时间
     private LocalDateTime createTime;
 }

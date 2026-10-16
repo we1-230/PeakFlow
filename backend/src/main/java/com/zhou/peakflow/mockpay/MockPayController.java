@@ -52,7 +52,7 @@ public class MockPayController {
     public MockPayController(MockPayProperties props, MockPayLedger ledger) {
         this.props = props;
         this.ledger = ledger;
-        // 设置超时，避免回调地址不可达时把"第三方"线程挂死
+        // 避免回调地址不可达时把"第三方"线程挂死
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(3000);
         factory.setReadTimeout(5000);

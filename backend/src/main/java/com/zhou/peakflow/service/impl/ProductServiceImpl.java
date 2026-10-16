@@ -193,7 +193,6 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
                 .replace("_", "\\_");
     }
 
-    // 查询普通商品详情
     @Override
     public Product getProductDetail(Long id) {
         log.info("【商品详情】开始查询，商品ID：{}", id);
@@ -338,7 +337,6 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
     }
 
 
-    // 更新普通商品
     @Override
     public void updateProduct(UpdateProductDto updateProductDto) {
         log.info("开始执行更新商品操作，商品ID：{}", updateProductDto.getId());
@@ -469,7 +467,6 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
         }
     }
 
-    // 生成分页缓存Key
     private String buildPageCacheKey(Integer pageNum, Integer pageSize, Long categoryId, String keyword) {
         StringBuilder sb = new StringBuilder(PRODUCT_PAGE);
         sb.append(pageNum).append(":").append(pageSize);
@@ -485,7 +482,6 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
         return sb.toString();
     }
 
-    // 删除所有分页缓存
     private void clearPageCache() {
         String pattern = PRODUCT_PAGE + "*";
 
@@ -540,7 +536,6 @@ public class ProductServiceImpl extends ServiceImpl<ProductMapper, Product> impl
     @Transactional(rollbackFor = Exception.class)
     public void clearProductListCache() {
 
-        // 删除所有分页缓存
         Set<String> keys = scanKeys(PRODUCT_PAGE   + "*");
         if (keys != null && !keys.isEmpty()) {
             stringRedisTemplate.delete(keys);

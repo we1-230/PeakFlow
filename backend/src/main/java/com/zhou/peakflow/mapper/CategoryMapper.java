@@ -14,7 +14,7 @@ import org.apache.ibatis.annotations.Update;
 @Mapper
 public interface CategoryMapper extends BaseMapper<Category> {
 
-    // 更新分类：仅当目标状态为启用，或分类下已无商品时才允许
+    // 仅当目标状态为启用，或分类下已无商品时才允许
     @Update("""
         UPDATE category c
         SET c.name = #{name},
@@ -35,7 +35,6 @@ public interface CategoryMapper extends BaseMapper<Category> {
         """)
     int updateCategoryWithCheck(UpdateCategoryDto dto);
 
-    // 删除分类：分类下还有商品时拒绝
     @Update("""
             UPDATE category c
             SET c.deleted = 1,

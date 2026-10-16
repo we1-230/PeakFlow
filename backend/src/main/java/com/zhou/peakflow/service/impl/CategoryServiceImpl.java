@@ -41,7 +41,6 @@ public class CategoryServiceImpl extends ServiceImpl<CategoryMapper, Category> i
 
     private final RedissonClient redissonClient;
 
-    // 查询所有启用的分类
     @Override
     public List<Category> getEnabledCategories() {
         log.info("查询所有启用的分类");

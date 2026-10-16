@@ -82,7 +82,6 @@ public class PayTxService {
         return buildPrepayVo(record);
     }
 
-    // 生成商户订单号
     private String generateOutTradeNo(Order order) {
         return "PAY" + order.getOrderNo() + "-" + System.currentTimeMillis();
     }

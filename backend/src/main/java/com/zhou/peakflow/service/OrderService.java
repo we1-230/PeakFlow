@@ -15,7 +15,7 @@ import java.math.BigDecimal;
  */
 public interface OrderService extends IService<Order> {
 
-    // 创建普通订单：校验通过后扣库存并落库（商品与地址做快照，后续改价改地址不影响历史单）
+    // 校验通过后扣库存并落库（商品与地址做快照，后续改价改地址不影响历史单）
     Order createOrder(Long userId, CreateOrderDto createOrderDto);
 
     // 标记订单已付款（由第三方支付回调驱动，不接受前端直接调用）
@@ -33,10 +33,8 @@ public interface OrderService extends IService<Order> {
     // 退货入库：商家签收退货后回补库存（库存变化由实物动作驱动，而非退款成功）
     void restoreStockForReturn(Long orderId);
 
-    // 获取订单详情
     OrderVo getOrderDetail(Long userId, Long orderId);
 
-    // 获取用户订单列表（分页）
     PageVo<OrderVo> getUserOrders(Long userId, OrderQueryDto queryDto);
 
     // 管理员更新订单（发货 / 维护物流信息）
@@ -53,7 +51,6 @@ public interface OrderService extends IService<Order> {
     //            需要由兜底扫描任务稍后再关一次
     boolean timeoutCancelOrder(Long orderId);
 
-    // 发送订单超时关单的延迟消息
     void sendOrderTimeoutDelayMessage(Long orderId);
 
     // ---- 兜底扫描（定时任务调用） ----

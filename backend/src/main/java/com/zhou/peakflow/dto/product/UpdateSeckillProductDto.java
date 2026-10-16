@@ -16,14 +16,10 @@ import static com.zhou.peakflow.constant.RegularPatterns.PRODUCT_NAME;
 import static com.zhou.peakflow.constant.RegularPatterns.URL;
 
 /**
- * 秒杀商品修改 DTO（秒杀域专用，与普通商品的 UpdateProductDto 隔离）
- *
- * 三个字段取舍：
- * - 不含 status：上下架统一走 {@code PUT /seckill/status/{id}}，那条链路有「存在未完成订单
- *   不允许下架」的校验，编辑接口若也能改状态就绕过了这道校验。
- * - seckillStock 可选：传了才调整并同步刷新 Redis 库存 Key，不传保留库中原值，
- *   避免被 BeanUtils 覆写成 NULL 导致商品从列表消失。
- * - version 可选：前端带上即为真正的乐观锁，不带则回落到库中当前版本，不强制升级调用方。
+ * 秒杀商品修改 DTO（秒杀域专用，与普通商品的 UpdateProductDto 隔离）。
+ * 不含 status：上下架统一走 PUT /seckill/status/{id}，那条链路有「有未完成订单不许下架」的校验，
+ * 编辑接口若能改状态就绕过了它。seckillStock / version 可选：前者不传则保留库中原值，避免被
+ * BeanUtils 覆写成 NULL 导致商品从列表消失；后者带上才做乐观锁，不带回落当前版本，不强制升级调用方。
  */
 @Data
 public class UpdateSeckillProductDto {

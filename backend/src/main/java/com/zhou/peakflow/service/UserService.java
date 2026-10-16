@@ -31,13 +31,12 @@ public interface UserService extends IService<User> {
     // 根据 ID 获取用户信息
     UserInfoDto getUserInfo(Long userId);
 
-    // 修改密码：校验旧密码后用 CAS 更新，防并发覆盖
+    // 校验旧密码后用 CAS 更新，防并发覆盖
     boolean changePassword(String username, String oldPassword, String newPassword);
 
     // 修改头像（multipart 上传到 OSS）
     String changAvatar(String token, MultipartFile file);
 
-    // 修改昵称
     boolean changeNickname(String token, String nickname);
 
     // 管理员：分页查询用户列表

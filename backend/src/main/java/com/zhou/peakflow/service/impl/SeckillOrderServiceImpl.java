@@ -111,17 +111,14 @@ public class SeckillOrderServiceImpl implements SeckillOrderService {
 
     @PostConstruct
     public void initMetrics() {
-        // 秒杀成功次数
         seckillSuccessCounter = Counter.builder("seckill.success.total")
                 .description("秒杀成功总次数")
                 .register(meterRegistry);
 
-        // 秒杀失败次数
         seckillFailCounter = Counter.builder("seckill.fail.total")
                 .description("秒杀失败总次数")
                 .register(meterRegistry);
 
-        // 秒杀耗时
         seckillTimer = Timer.builder("seckill.duration")
                 .description("秒杀接口响应时间")
                 .register(meterRegistry);
@@ -163,7 +160,8 @@ public class SeckillOrderServiceImpl implements SeckillOrderService {
             throw new BusinessException(e.getMessage());
         }
 
-        // Redis 预扣库存（原子 Lua；Key 缺失时从 DB 重建后重试一次）
+        // 预扣刻意放在发消息之前：靠 Redis 单线程的原子性把超卖挡在 DB 之外，
+        // MQ 与 DB 只需承接「已通过筛选」的小流量（Key 缺失时从 DB 重建后重试一次）
         deductStock(productId, userId);
 
         // === 组装消息异步落库 ===
@@ -918,19 +916,12 @@ public class SeckillOrderServiceImpl implements SeckillOrderService {
     // ---- 校验与辅助方法 ----
 
     /**
-     * 防御性校验：商品是否正处于秒杀活动进行中，活动期间禁止一切会破坏活动一致性的操作。
+     * 防御性校验：商品正处于秒杀活动进行中时，禁止一切会破坏活动一致性的操作（删 / 下架 / 改价 / 改时间）。
+     * 双向禁止的理由：删或下架会让抢到一半的用户失去商品；改价或改时间会让 Redis 预扣库存与详情缓存
+     * 快照和 DB 失配，典型后果是「页面显示一个价、下单按另一个价」。与 ProductOperateGuard 分工互补
+     * （那边是订单侧跨表占用校验，这里是秒杀专属的活动时间窗校验），两者都要过；时间未配置则不拦截。
      *
-     * 禁止的原因是双向的：删除 / 下架会让抢到一半的用户失去商品，已产生的订单可能无法履约；
-     * 改价格 / 活动时间 / 商品信息则会让 Redis 预扣库存、商品详情缓存里的快照与 DB 失配，
-     * 典型后果是「页面显示一个价、下单按另一个价」这类资损级问题。
-     *
-     * 与 {@link com.zhou.peakflow.guard.ProductOperateGuard} 分工：那边是订单侧占用校验
-     * （跨表，普通商品与秒杀商品通用），这里是活动时间窗校验（秒杀专属），两者互补都要过。
-     *
-     * 时间未配置时不拦截，交给各接口自身的正常校验报错，
-     * 避免防御性校验把主流程更准确的错误提示盖掉。
-     *
-     * @param product 必须是数据库里的当前商品，不能用 DTO——本次请求可能正在改活动时间
+     * @param product 必须是库里的当前商品而非 DTO——本次请求可能正在改活动时间
      * @param action  操作名称，用于拼接提示语
      */
     private void assertNotInSeckillActivity(Product product, String action) {
@@ -989,7 +980,11 @@ public class SeckillOrderServiceImpl implements SeckillOrderService {
         }
     }
 
-    // Redis 预扣库存：Key 缺失（-2）时从 DB 重建后重试一次；剩余 <0 视为库存不足
+    /**
+     * Redis 预扣库存：Key 缺失（Lua 返回 -2）时从 DB 重建后重试一次；剩余 < 0 视为库存不足。
+     * remain 为 null 表示 Lua 没有返回结果（异常路径），与库存不足一并按失败处理 ——
+     * 这里一律 fail-closed：宁可少卖一单，也不能放行到 DB 造成超卖。
+     */
     private void deductStock(Long productId, Long userId) {
         Long remain = executeDecr(productId);
         if (remain != null && remain == STOCK_KEY_MISSING) {

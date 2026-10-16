@@ -12,23 +12,10 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * MockPay（模拟第三方支付平台）的交易 / 退款台账。
- *
- * 台账原先写在 MockPayController 的 static Map 里，只存在于单个 JVM 内存中。
- * 单实例看不出问题，一旦同机起多实例或水平扩容，就会暴露三类资损缺陷：
- * 收款记在实例 A、退款请求落到实例 B，会误判「原交易不存在」而拒绝退款；
- * 同一退款单号被负载均衡打到两个实例，两边各自判定「没处理过」导致重复退款；
- * 进程内的已退款集合互不可见，换个退款单号就能对同一笔交易再退一次。
- *
- * 修法是把台账搬到所有实例共享的 Redis，用 SETNX（setIfAbsent）做原子占位，
- * 让「是否已受理」的判定在实例间天然一致——谁先抢到谁受理，后到的走幂等重发或拒绝。
- *
- * Key 设计（与业务 Redis 同实例，按环境逻辑库隔离）：
- *   mockpay:paid:{outTradeNo}     -> tradeNo       已收款台账（退款时校验原交易是否存在）
- *   mockpay:refund:{outRefundNo}  -> refundTradeNo 退款单台账（同一退款单号幂等重发）
- *   mockpay:refunded:{outTradeNo} -> 1             该交易已发起过退款（防同一交易重复退款）
- *
- * 降级策略与项目既有的 Redis 故障降级保持一致：Redis 不可用时退化为本实例内存台账，
- * 单机仍能跑通支付 / 退款演示，但多实例一致性失效（退化成修复前的行为），日志会明确告警。
+ * 台账必须存共享 Redis：原先在 Controller 的 static Map 里，多实例下会出现「收款记在 A、
+ * 退款落到 B」误判原交易不存在、同一退款单号被两个实例各处理一次而重复退款、已退款集合互不
+ * 可见导致换单号再退一次 —— 三类都是资损。改用 SETNX(setIfAbsent) 原子占位，「是否已受理」
+ * 在实例间天然一致（谁先抢到谁受理）；Redis 不可用时降级为本实例内存台账。
  */
 @Slf4j
 @Component

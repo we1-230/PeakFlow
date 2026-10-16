@@ -42,7 +42,6 @@ public class CustomUserDetailsService implements UserDetailsService {
             throw new BusinessException("该账号已被封禁");
         }
 
-        // 判断：是否临时密码
         if (user.getIsTempPassword() != null && user.getIsTempPassword() == 1) {
             // 密码正确，但是是临时密码：返回特殊状态，前端强制跳修改密码页面
           throw new BusinessException("请自己通过临时密码重置自己的密码再登陆");

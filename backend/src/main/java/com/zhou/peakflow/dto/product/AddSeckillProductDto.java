@@ -16,14 +16,10 @@ import static com.zhou.peakflow.constant.RegularPatterns.PRODUCT_NAME;
 import static com.zhou.peakflow.constant.RegularPatterns.URL;
 
 /**
- * 秒杀商品新增 DTO（秒杀域专用，与普通商品的 AddProductDto 隔离）
- *
- * 为什么必须单独一个 DTO：
- * - 秒杀商品有秒杀价、秒杀库存、秒杀起止时间三个必填字段，普通商品 DTO 里没有，
- *   复用会导致这些字段永远收不到值（曾因此出现秒杀价、时间写入 NULL 的缺陷）。
- * - 普通商品有「普通库存」而秒杀商品不需要，字段集合本就不同，
- *   混在一起会出现「新增走 currentPrice、修改走 seckillPrice」这类畸形适配。
- * - 一个 DTO 被两个域共用时，任何一方加字段都会污染另一方，是典型的高耦合温床。
+ * 秒杀商品新增 DTO（秒杀域专用，与普通商品的 AddProductDto 隔离）。
+ * 必须单独一个 DTO 而非复用普通商品 DTO：秒杀价 / 秒杀库存 / 秒杀起止时间三个字段普通 DTO 里没有，
+ * 复用会收不到值（历史上就出现过秒杀价与时间写入 NULL）；而普通库存秒杀又不需要，字段集合本就不同。
+ * 一个 DTO 被两个域共用时，任何一方加字段都会污染另一方，是典型的高耦合温床。
  */
 @Data
 public class AddSeckillProductDto {

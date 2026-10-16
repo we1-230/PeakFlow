@@ -57,7 +57,7 @@ public interface UserMapper extends BaseMapper<User> {
 
     // ---- 更新 ----
 
-    // 更新最后登录时间与 IP；封禁账号也记录本次登录，所以不校验 status
+    // 封禁账号也记录本次登录，所以不校验 status
     @Update("UPDATE user SET last_login_time = NOW(), last_login_ip = #{ip} WHERE id = #{userId} AND deleted = 0")
     int updateLastLogin(@Param("userId") Long userId, @Param("ip") String ip);
 

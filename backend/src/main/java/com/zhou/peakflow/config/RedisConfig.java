@@ -43,12 +43,10 @@ public class RedisConfig {
         javaTimeModule.addDeserializer(LocalDateTime.class, new LocalDateTimeDeserializer(formatter));
         om.registerModule(javaTimeModule);
 
-        // 设置可见性
         om.setVisibility(PropertyAccessor.ALL, JsonAutoDetect.Visibility.ANY);
         om.activateDefaultTyping(om.getPolymorphicTypeValidator(), ObjectMapper.DefaultTyping.NON_FINAL);
         jsonSerializer.setObjectMapper(om);
 
-        // 设置序列化器
         template.setKeySerializer(stringSerializer);
         template.setValueSerializer(jsonSerializer);
         template.setHashKeySerializer(stringSerializer);
