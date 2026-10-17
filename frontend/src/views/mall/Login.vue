@@ -89,12 +89,46 @@
           </el-tab-pane>
         </el-tabs>
 
-        <!-- 协议勾选：未勾选时阻止登录/注册 -->
+        <!-- 协议勾选：未勾选时阻止登录/注册；两个协议名可点击查看全文 -->
         <div class="agreement-row">
-          <el-checkbox v-model="agreed" class="agreement-check">已阅读并同意<a class="agreement-link">《用户协议》</a>与<a class="agreement-link">《隐私政策》</a></el-checkbox>
+          <el-checkbox v-model="agreed" class="agreement-check">
+            已阅读并同意
+            <a class="agreement-link" @click.prevent.stop="openAgreement('user')">《用户协议》</a>
+            与
+            <a class="agreement-link" @click.prevent.stop="openAgreement('privacy')">《隐私政策》</a>
+          </el-checkbox>
         </div>
       </section>
     </main>
+
+    <!-- 协议全文弹窗（点击协议名打开；风格与登录卡片保持一致） -->
+    <el-dialog
+      v-model="agreementVisible"
+      :title="currentAgreement.title"
+      width="640px"
+      class="agreement-dialog"
+      align-center
+      append-to-body
+    >
+      <div class="agreement-meta">
+        <span class="agreement-badge">{{ currentAgreement.title }}</span>
+        <span class="agreement-version">版本 {{ currentAgreement.version }} · 更新于 {{ currentAgreement.updatedAt }}</span>
+      </div>
+      <div class="agreement-body">
+        <section v-for="(sec, i) in currentAgreement.sections" :key="i" class="agreement-section">
+          <h3 class="agreement-h3">{{ sec.heading }}</h3>
+          <p v-for="(para, j) in sec.paragraphs" :key="j" class="agreement-p">{{ para }}</p>
+        </section>
+      </div>
+      <template #footer>
+        <div class="agreement-footer">
+          <el-button @click="agreementVisible = false">关闭</el-button>
+          <el-button type="primary" class="agreement-agree-btn" @click="agreeFromDialog">
+            我已阅读并同意
+          </el-button>
+        </div>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -106,6 +140,7 @@ import { User, Lock, Message, Phone, Postcard, ArrowLeft } from '@element-plus/i
 import BrandLogo from '@/components/BrandLogo.vue'
 import { Auth } from '@/api'
 import { useAuthStore } from '@/stores/auth'
+import { AGREEMENTS, USER_AGREEMENT } from '@/constants/agreements'
 
 const router = useRouter()
 const route = useRoute()
@@ -113,6 +148,22 @@ const auth = useAuthStore()
 
 const activeTab = ref('login')
 const agreed = ref(false)  // 协议勾选状态
+
+// ---------- 协议弹窗 ----------
+const agreementVisible = ref(false)
+const currentAgreement = ref(USER_AGREEMENT)
+
+// 点击《用户协议》/《隐私政策》：打开对应全文（不改变勾选态，避免误触视为同意）
+function openAgreement(key) {
+  currentAgreement.value = AGREEMENTS[key] || USER_AGREEMENT
+  agreementVisible.value = true
+}
+
+// 在弹窗里点「我已阅读并同意」：关闭弹窗并自动勾选，省去用户再找复选框
+function agreeFromDialog() {
+  agreed.value = true
+  agreementVisible.value = false
+}
 
 // ---------- Login ----------
 const loginFormRef = ref(null)
@@ -397,7 +448,54 @@ async function handleRegister() {
   --el-checkbox-checked-input-border-color: #ff5000;
   --el-checkbox-checked-icon-color: #fff;
 }
-.agreement-link { color: #ff5000; cursor: pointer; margin: 0 2px; }
+.agreement-link { color: #ff5000; cursor: pointer; margin: 0 2px; text-decoration: none; }
+.agreement-link:hover { text-decoration: underline; }
+
+/* ============ 协议全文弹窗（配色与登录卡片一致：橙主色 + 灰阶正文） ============ */
+.agreement-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 12px;
+  border-bottom: 1px dashed #ece6e0;
+  margin-bottom: 14px;
+}
+.agreement-badge {
+  font-size: 12px;
+  color: #ff5000;
+  background: #fff2e8;
+  border: 1px solid #ffd6bd;
+  border-radius: 10px;
+  padding: 2px 10px;
+}
+.agreement-version { font-size: 12px; color: #a89a8f; }
+.agreement-body {
+  max-height: 52vh;
+  overflow-y: auto;
+  padding-right: 6px;
+  line-height: 1.75;
+}
+.agreement-body::-webkit-scrollbar { width: 6px; }
+.agreement-body::-webkit-scrollbar-thumb { background: #e6e0da; border-radius: 3px; }
+.agreement-section { margin-bottom: 16px; }
+.agreement-h3 {
+  font-size: 14px;
+  font-weight: 700;
+  color: #3a2e26;
+  margin-bottom: 6px;
+}
+.agreement-p {
+  font-size: 13px;
+  color: #6f6259;
+  margin-bottom: 6px;
+}
+.agreement-footer { display: flex; justify-content: flex-end; gap: 10px; }
+.agreement-agree-btn {
+  --el-button-bg-color: #ff5000;
+  --el-button-border-color: #ff5000;
+  --el-button-hover-bg-color: #e64600;
+  --el-button-hover-border-color: #e64600;
+}
 .agreement-link:hover { text-decoration: underline; }
 
 /* ============ 响应式 ============ */
