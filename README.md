@@ -554,6 +554,9 @@ docker compose exec -T -w /workspace/backend/postman tester sh -c '
   python3 verify_db_redis.py'
 ```
 
+> 💡 上面这一长串可以直接用脚本跑（已把 `-w` 与 `baseUrl` 两个坑封装好）：
+> `MSYS_NO_PATHCONV=1 docker compose exec -T -w /workspace/backend/postman tester sh -s < tools/run_regression.sh`
+>
 > ⚠️ 环境文件里 `baseUrl` 默认是 `http://localhost:8080`，**容器内那条地址指的是 tester 自己**，
 > 会得到 `connect ECONNREFUSED 127.0.0.1:8080`。必须用 `--env-var baseUrl=http://nginx/api` 覆盖
 > （经唯一入口走，顺带覆盖反代与负载均衡）。
