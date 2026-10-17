@@ -3,6 +3,7 @@ package com.zhou.peakflow.controller;
 import com.zhou.peakflow.dto.product.AddProductDto;
 import com.zhou.peakflow.dto.product.SelectProductDto;
 import com.zhou.peakflow.dto.product.UpdateProductDto;
+import com.zhou.peakflow.exception.BusinessException;
 import com.zhou.peakflow.pojo.Product;
 import com.zhou.peakflow.pojo.Result;
 import com.zhou.peakflow.service.ProductService;
@@ -42,6 +43,13 @@ public class ProductController extends BaseController{
     public Result<Product> detail(@PathVariable Long id) {
         log.info("商品详情请求，id={}", id);
         Product product = productService.getProductDetail(id);
+        // 商品不存在时必须给业务错误，不能返回 200 + data:null：
+        // Service 层对「不存在的 id」会返回 null（同时写空值缓存防穿透），
+        // 直接透传会让前端拿到 success 却没有数据，页面渲染成空白且无任何提示。
+        // 契约变更：200 + data:null → 200 + code=3005 + message=商品不存在。
+        if (product == null) {
+            throw new BusinessException("商品不存在");
+        }
         return Result.success(product);
     }
 
