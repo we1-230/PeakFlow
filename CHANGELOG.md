@@ -29,6 +29,17 @@
 - **首页轮播大图未走优化**：硬编码 `w=800&h=400&q=80`，是首屏视觉面积最大的一张，
   现接入 `resolveImage(IMG_SIZE.banner)`。
 
+- **压缩代码从未被调用**：`ImageCompressor` 编译进 jar 了，但
+  `OssUploadServiceImpl` 的接入改动在某次 `git reset --hard` 中丢失
+  （该类是已跟踪文件，reset 连修改一起回滚；新建的类文件反而幸存）。
+  形成「类在、单测全绿、线上不生效」。已重新接入，并补
+  `OssUploadServiceImplTest`（5 用例）——从上传入口进、抓真正写给 OSS 的字节流断言体积。
+- **图片 URL 多了一段 `/api`**：`docker-compose.yml` 里
+  `APP_UPLOAD_PUBLIC_BASE_URL: ${PUBLIC_BASE_URL}/api`。`/api` 是接口前缀，
+  图片不该带 ⇒ 请求落到 `location /api/`（限流 + no-cache），
+  绕过了图片专用的 `/uploads/`（30 天缓存）。已去掉；
+  历史 `/api/uploads/...` 由新增兼容 location 继续支持，缓存升级为 30 天。
+
 ### 新增
 
 - `tools/compress_uploads.py`：存量上传图片压缩脚本。默认 dry-run，`--apply` 才写，
