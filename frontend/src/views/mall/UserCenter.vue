@@ -291,13 +291,17 @@ async function saveNickname() {
 // ---------- Avatar Upload ----------
 function beforeAvatarUpload(file) {
   const isImage = file.type.startsWith('image/')
-  const isLt2M = file.size / 1024 / 1024 < 2
+  // 上限与服务端保持一致（5MB）。
+  // 为什么不卡 2MB：服务端会把图压到最长边 400px（实测 1.6MB → 43KB），
+  // 而手机原图普遍 3~8MB —— 卡 2MB 会让大量真实用户在选图时就被拒绝，
+  // 而他其实只是想换个头像。
+  const isLt5M = file.size / 1024 / 1024 <= 5
   if (!isImage) {
-    ElMessage.error('只能上传图片文件')
+    ElMessage.error('只能上传图片文件（jpg / png / webp）')
     return false
   }
-  if (!isLt2M) {
-    ElMessage.error('图片大小不能超过 2MB')
+  if (!isLt5M) {
+    ElMessage.error('图片大小不能超过 5MB，建议先用手机截图或压缩后再上传')
     return false
   }
   return true

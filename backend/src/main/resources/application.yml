@@ -5,8 +5,10 @@ spring:
   # 文件上传大小限制
   servlet:
     multipart:
-      max-file-size: 2MB
-      max-request-size: 2MB
+      # 5MB：与服务端压缩能力匹配（图片会被压到最长边 400px，实测 1.6MB → 43KB）。
+      # 卡 2MB 会让大量手机原图（常见 3~8MB）在上传前就被拒。
+      max-file-size: 5MB
+      max-request-size: 5MB
   # 数据库连接池配置
   datasource:
     hikari:
