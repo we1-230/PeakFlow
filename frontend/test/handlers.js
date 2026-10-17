@@ -83,8 +83,13 @@ export const handlers = [
   http.post('/api/user/password', () => ok(null, '密码修改成功，请重新登录')),
   http.post('/api/user/avatar', () => ok('https://oss.example.com/avatar/new.png', '上传头像成功')),
   http.post('/api/user/nickname', () => ok(null, '昵称修改成功')),
+  // ⚠️ 必须与后端真实契约一致：login_log 表只有
+  //    id / user_id / username / ip / login_time / remark
+  //    没有 status / location / device。
+  //    历史上桩数据臆造了 status:1，导致前端读 row.status 的缺陷一直测不出来
+  //    （线上表现为「登录成功却显示失败」）。
   http.post('/api/user/loginLog', () => ok(pageVo([
-    { id: 1, userId: 100, loginTime: '2026-10-14 18:00:00', ip: '127.0.0.1', location: '本地', device: 'Chrome', status: 1 },
+    { id: 1, userId: 100, username: 'tester', loginTime: '2026-10-14 18:00:00', ip: '127.0.0.1', remark: '登录成功' },
   ]))),
 
   // ==================== admin ====================
@@ -103,7 +108,10 @@ export const handlers = [
     return ok(pageVo(list, b.pageNum || 1, b.pageSize || 10))
   }),
   http.get('/api/product/detail/:id', ({ params }) => {
-    const p = normalProducts.find(x => x.id === Number(params.id))
+    // 详情接口对「普通商品」和「秒杀商品」都要能返回：
+    // 秒杀商品的 stock=0 / seckillStock>0，是详情页库存口径 bug 的复现数据
+    const id = Number(params.id)
+    const p = normalProducts.find(x => x.id === id) || seckillProducts.find(x => x.id === id)
     if (!p) return bizError('商品不存在')
     return ok(p)
   }),

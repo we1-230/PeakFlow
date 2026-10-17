@@ -41,12 +41,9 @@
           </div>
 
           <div class="meta-row">
-            <span class="stock" :class="{ 'stock-low': product.stock <= 10 }">
-              库存 {{ product.stock }} 件
-              <em v-if="product.stock <= 10">（仅剩少量，抓紧抢购）</em>
-            </span>
-            <span v-if="product.isSeckill && product.seckillStock != null" class="stock">
-              秒杀库存 {{ product.seckillStock }} 件
+            <span class="stock" :class="{ 'stock-low': availableStock > 0 && availableStock <= 10 }">
+              {{ stockLabel }} {{ availableStock }} 件
+              <em v-if="availableStock > 0 && availableStock <= 10">（仅剩少量，抓紧抢购）</em>
             </span>
           </div>
 
@@ -57,15 +54,17 @@
             ></div>
           </div>
 
-          <!-- Quantity -->
+          <!-- Quantity：秒杀限购 1 件（后端唯一索引 + 下单接口固定 1 件），故禁用步进但保留展示 -->
           <div class="qty-row">
             <span class="qty-label">数量</span>
             <el-input-number
               v-model="quantity"
               :min="1"
               :max="maxQuantity"
+              :disabled="isSeckillProduct"
               size="large"
             />
+            <span v-if="isSeckillProduct" class="qty-tip">秒杀限购 {{ SECKILL_BUY_LIMIT }} 件</span>
           </div>
 
           <!-- Actions -->
@@ -119,7 +118,7 @@
               <div class="param-item"><span>商品编号</span><b>{{ product.id }}</b></div>
               <div class="param-item"><span>商品名称</span><b>{{ product.name }}</b></div>
               <div class="param-item"><span>所属分类</span><b>{{ categoryName || '-' }}</b></div>
-              <div class="param-item"><span>库存</span><b>{{ product.stock }} 件</b></div>
+              <div class="param-item"><span>{{ stockLabel }}</span><b>{{ availableStock }} 件</b></div>
               <div class="param-item"><span>原价</span><b>¥{{ Number(product.price).toFixed(2) }}</b></div>
               <div class="param-item" v-if="product.isSeckill">
                 <span>秒杀价</span><b class="seckill-price">¥{{ Number(product.seckillPrice).toFixed(2) }}</b>
@@ -194,7 +193,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Loading } from '@element-plus/icons-vue'
 import { Product, Cart, Category, Seckill, Address } from '@/api'
-import { SECKILL_RESULT_STATUS } from '@/constants/order'
+import { SECKILL_RESULT_STATUS, SECKILL_BUY_LIMIT } from '@/constants/order'
 import { useAuthStore } from '@/stores/auth'
 import { useCartStore } from '@/stores/cart'
 const auth = useAuthStore()
@@ -226,19 +225,49 @@ const hasOldPrice = computed(() => {
   return p && p.price != null && Number(p.price) > currentPrice.value
 })
 
+// ---------------------------------------------------------------------------
+// 库存口径（2026-10-17 修复「秒杀详情一进来就显示已售完」）
+//
+// 后端 Product 有两个互不相干的库存字段：
+//   · stock        —— 普通库存。秒杀商品该字段为 0（秒杀库存单独放在 seckillStock）
+//   · seckillStock —— 秒杀库存。仅秒杀活动商品有值
+// 之前模板/校验全读 stock ⇒ 秒杀商品（stock=0、seckillStock=50）进页面即弹
+// 「该商品已售罄」、库存显示 0，而点抢购却成功（handleSeckill 读的是 seckillStock）。
+// 现在统一按商品类型取正确口径，展示与校验同源，不再自相矛盾。
+// ---------------------------------------------------------------------------
+const isSeckillProduct = computed(() => Number(product.value?.isSeckill) === 1)
+
+// 该商品「真实可售库存」：秒杀走秒杀库存，普通走普通库存
+const availableStock = computed(() => {
+  const p = product.value
+  if (!p) return 0
+  const raw = isSeckillProduct.value ? p.seckillStock : p.stock
+  return Number(raw ?? 0)
+})
+
+// 库存文案前缀，避免把秒杀库存标成普通库存
+const stockLabel = computed(() => (isSeckillProduct.value ? '秒杀库存' : '库存'))
+
 const maxQuantity = computed(() => {
   const p = product.value
   if (!p) return 1
-  if (p.isSeckill && p.seckillStock != null) return Math.max(1, p.seckillStock)
-  return Math.max(1, p.stock || 1)
+  // 秒杀限购 1 件：后端 order 表 uk_seckill_user_product 唯一索引按 (userId, productId)
+  // 限购，且下单接口不接受数量参数（固定 1 件），前端不能放开多件
+  if (isSeckillProduct.value) return SECKILL_BUY_LIMIT
+  return Math.max(1, Number(p.stock ?? 1))
 })
 
 const stockPercent = computed(() => {
   const p = product.value
   if (!p) return 0
-  const totalStock = (p.stock || 0) + (p.soldCount || 0)
+  // 秒杀商品用秒杀库存做基数，否则 stock=0 时进度条恒为 0（与实际可售量矛盾）
+  const remain = isSeckillProduct.value
+    ? Number(p.seckillStock ?? 0)
+    : Number(p.stock ?? 0)
+  const sold = Number(p.soldCount ?? 0)
+  const totalStock = remain + sold
   if (!totalStock) return 0
-  return Math.min(100, Math.round(((p.soldCount || 0) / totalStock) * 100))
+  return Math.min(100, Math.round((sold / totalStock) * 100))
 })
 
 async function loadProduct() {
@@ -248,8 +277,10 @@ async function loadProduct() {
   try {
     const res = await Product.detail(productId.value)
     product.value = res
-    if (res && (res.stock ?? 1) <= 0) {
-      ElMessage.warning('该商品已售罄')
+    // 售罄提示必须按「该商品的真实可售库存」判断：
+    // 秒杀商品读 seckillStock，普通商品读 stock（详见 availableStock 注释）
+    if (res && availableStock.value <= 0) {
+      ElMessage.warning(isSeckillProduct.value ? '该秒杀商品已抢完' : '该商品已售罄')
     }
   } catch (e) {
     console.error(e)
@@ -320,7 +351,8 @@ async function handleSeckill() {
   if (!checkLogin()) return
   const p = product.value
   if (!p) return
-  if ((p.seckillStock ?? 1) <= 0) {
+  // 与页面展示同源：读 availableStock（秒杀口径），避免「显示有货却提示抢完」或反之
+  if (availableStock.value <= 0) {
     ElMessage.warning('秒杀商品已抢完')
     return
   }
@@ -551,6 +583,16 @@ onUnmounted(() => {
 .qty-label {
   font-size: 14px;
   color: #666;
+}
+
+/* 秒杀限购提示（仅秒杀商品显示，普通商品无此节点，桌面布局不受影响） */
+.qty-tip {
+  font-size: 12px;
+  color: #ff5000;
+  background: #fff2e8;
+  border: 1px solid #ffd6bd;
+  border-radius: 10px;
+  padding: 2px 8px;
 }
 
 .qty-max {

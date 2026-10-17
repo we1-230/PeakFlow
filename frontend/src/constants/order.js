@@ -66,3 +66,13 @@ export function needReturnLogistics(status) {
   const s = Number(status)
   return s === ORDER_STATUS.SHIPPED || s === ORDER_STATUS.COMPLETED
 }
+
+/**
+ * 秒杀限购件数。
+ *
+ * 与后端一致：order 表 `uk_seckill_user_product` 唯一索引基于
+ * `seckill_slot = concat(user_id, ':', seckill_product_id)`，
+ * 同一用户同一秒杀商品只能占 1 个名额；且 /seckill/order 接口
+ * 不接受数量参数（固定 1 件）。前端数量框不得放开多件。
+ */
+export const SECKILL_BUY_LIMIT = 1
