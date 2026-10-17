@@ -6,6 +6,52 @@
 
 ## [Unreleased]
 
+### 修复（2026-10-18 线上性能专项）
+
+- **上传的图片从外网根本打不开（功能缺陷，不只是慢）**：nginx 缺 `location /uploads/`，
+  请求落到 SPA 回退规则返回 `index.html` ⇒ `<img>` 拿到 `text/html` 解码失败。
+  实测同一文件：直连后端 `image/png 1330273 bytes`，经 nginx `text/html 875 bytes`。
+  用户反馈的「头像加载非常缓慢」实际是「头像一直加载不出来」。
+  新增 `location ^~ /uploads/` 反代到 backend + 30 天缓存 + 仅允许 GET。
+- **上传图片原样落盘，单个头像 1.33MB**：只校验 ≤5MB 就原样写入，无缩放无重编码。
+  在 60KB/s 的跨国链路上一个头像就要 20 秒。新增 `ImageCompressor`（纯 JDK ImageIO），
+  按最长边 400px 缩放 + 重编码，实测省 93%（613KB → 45KB）；异常一律回落原图。
+- **前端主 chunk 单文件 1.22MB**：`import * as ElementPlusIconsVue` 把 293 个图标
+  全注册（实际只用 28 个），加上 element-plus 全量组件全进首屏。
+  改为图标按需注册 + `manualChunks` 拆包 ⇒ 主 chunk 1222KB → 14KB，
+  且 element-plus 可跨版本长期缓存。发版只需重下 5~14KB 业务代码。
+- **商品图统一 `w=800` 且全部来自境外 unsplash**：列表卡片实际展示仅 200~260px。
+  新增 `resolveImage()` 按场景取尺寸（thumb 400 / mini 200 / large 800 / banner 1000），
+  q 降到 65 + `auto=format`（CDN 给 webp），非首屏加 `loading="lazy"`。
+  只对 unsplash 生效，OSS/本地地址原样返回。
+- **静态资源缓存不完整**：`/assets/` 补 `immutable`（省掉每资源 ≈330ms 的 304 往返）；
+  `/uploads/` 补 30 天缓存（原先完全没有缓存头）。
+- **首页轮播大图未走优化**：硬编码 `w=800&h=400&q=80`，是首屏视觉面积最大的一张，
+  现接入 `resolveImage(IMG_SIZE.banner)`。
+
+### 新增
+
+- `tools/compress_uploads.py`：存量上传图片压缩脚本。默认 dry-run，`--apply` 才写，
+  原图备份到 `<dir>-orig/`。**两条铁律**：保持原文件名（含扩展名，否则数据库 URL 404）、
+  保持原 uid/gid（否则后端 UID1001 读不了）。实测线上 6 个文件 3652KB → 184KB（省 95%）。
+- `src/icons.js` + `test/core/icons-coverage.test.js`：图标名单与其覆盖率守卫
+  （漏注册只会静默不渲染，编译/类型/普通单测都发现不了）。
+- `src/utils/image.js` + `test/core/image-util.test.js`（13 用例）。
+
+### 变更（性能数据）
+
+| 指标 | 改造前 | 改造后 |
+|---|---|---|
+| 首屏 load（冷缓存，国内） | 约 60~120 s（用户体感） | **4.5 s** |
+| 主 JS | 1.22MB 单文件 / gzip 404KB | 14KB + 3 个可缓存 vendor 块 |
+| 上传头像 | 1.33MB | **43KB** |
+| 存量图片合计 | 3652 KB | **184 KB**（省 95%） |
+| 图片可用性 | 头像全部返回 HTML（不可用） | 36/36 正常加载 |
+
+详见 [`docs/线上性能优化报告.md`](docs/线上性能优化报告.md)。
+
+
+
 ### 修复
 
 - **商品详情接口对不存在的 id 返回 `200 + data:null`**：`ProductServiceImpl` 为防缓存穿透
