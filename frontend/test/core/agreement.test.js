@@ -65,4 +65,21 @@ describe('登录页 · 协议弹窗', () => {
     await waitFor(() => expect(wrapper.vm.agreed).toBe(true))
     expect(wrapper.vm.agreementVisible).toBe(false)
   })
+
+  // 回归守卫：曾把协议链接放进 el-checkbox 的 label 内并用 .stop 阻止冒泡，
+  // 结果点击勾选框完全失效（用户根本勾不上，也就无法登录）。
+  it('勾选框本身可正常勾选（协议链接移出 label 后不互相干扰）', async () => {
+    const { wrapper } = await mountView(Login, { path: '/login' })
+    await waitFor(() => expect(wrapper.find('.agreement-check').exists()).toBe(true))
+
+    const input = wrapper.find('.agreement-check input[type="checkbox"]')
+    expect(input.exists()).toBe(true)
+    await input.setValue(true)
+    await waitFor(() => expect(wrapper.vm.agreed).toBe(true))
+
+    // 协议链接在 label 之外，点击它不该改变勾选态
+    await wrapper.findAll('.agreement-link')[0].trigger('click')
+    await waitFor(() => expect(wrapper.vm.agreementVisible).toBe(true))
+    expect(wrapper.vm.agreed).toBe(true)
+  })
 })

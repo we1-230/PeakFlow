@@ -89,14 +89,18 @@
           </el-tab-pane>
         </el-tabs>
 
-        <!-- 协议勾选：未勾选时阻止登录/注册；两个协议名可点击查看全文 -->
+        <!-- 协议勾选：未勾选时阻止登录/注册；两个协议名可点击查看全文
+             ⚠️ 协议链接必须放在 el-checkbox 的 label 之外：
+             放进 label 里时，<a> 的点击会与「点文字即勾选」冲突
+             （阻止冒泡会让勾选框失灵，不阻止则点协议名会误勾选）。 -->
         <div class="agreement-row">
-          <el-checkbox v-model="agreed" class="agreement-check">
+          <el-checkbox v-model="agreed" class="agreement-check" />
+          <span class="agreement-text">
             已阅读并同意
-            <a class="agreement-link" @click.prevent.stop="openAgreement('user')">《用户协议》</a>
+            <a class="agreement-link" @click.prevent="openAgreement('user')">《用户协议》</a>
             与
-            <a class="agreement-link" @click.prevent.stop="openAgreement('privacy')">《隐私政策》</a>
-          </el-checkbox>
+            <a class="agreement-link" @click.prevent="openAgreement('privacy')">《隐私政策》</a>
+          </span>
         </div>
       </section>
     </main>
@@ -439,11 +443,19 @@ async function handleRegister() {
   padding-top: 14px;
   border-top: 1px solid #f2f0ee;
   display: flex;
+  align-items: center;
   justify-content: center;
+  gap: 2px;
+}
+.agreement-text {
+  font-size: 12px;
+  color: #8a8279;
+  line-height: 1.5;
 }
 .agreement-check {
   font-size: 12px;
   color: #8a8279;
+  margin-right: 2px;
   --el-checkbox-checked-bg-color: #ff5000;
   --el-checkbox-checked-input-border-color: #ff5000;
   --el-checkbox-checked-icon-color: #fff;
