@@ -136,6 +136,30 @@ location ^~ /uploads/ {
 }
 
 # ---------------------------------------------------------------------------
+# 兼容历史数据：/api/uploads/*
+#
+# 2026-10-17 之前 docker-compose.yml 把图片基址拼成了 `${PUBLIC_BASE_URL}/api`，
+# 于是数据库里已经存下一批 `https://域名/api/uploads/<uuid>.png`。
+# 修正配置后新图走 /uploads/*，但**老 URL 不能失效**（用户头像全部指向它们）。
+#
+# 这里给它单独一条 location 而不是靠 /api/ 兜底，是因为：
+#   /api/ 那条带限流且不设缓存头 —— 图片既不该被接口限流拖累，也应当长缓存。
+# 语义与 /uploads/ 完全一致，只是多剥一层 /api 前缀。
+# ---------------------------------------------------------------------------
+location ^~ /api/uploads/ {
+    include     /etc/nginx/snippets/peakflow-security-headers.inc;
+    expires     30d;
+    access_log  off;
+    limit_except GET { deny all; }
+    # proxy_pass 带 URI：把匹配到的 /api/uploads/ 替换成 /uploads/
+    proxy_pass  http://peakflow_backend/uploads/;
+    proxy_set_header Host              $host;
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+
+# ---------------------------------------------------------------------------
 # 接口限流
 #   nginx 的 location 匹配优先级：= 精确 > ^~ 前缀 > 正则 > 普通前缀。
 #   下面四条从具体到宽泛排列，最后一条 /api/ 才是兜底。

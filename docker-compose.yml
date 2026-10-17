@@ -78,7 +78,18 @@ x-backend-env: &backend-env
   #    写成 127.0.0.1:8080 的话，用户点「去支付」会直接打不开。
   MOCK_PAY_CASHIER_URL: ${PUBLIC_BASE_URL:-http://localhost}/api/mock-pay/cashier
   # 本地降级上传返回的图片直链同样是**浏览器**要加载的，同理走 nginx。
-  APP_UPLOAD_PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost}/api
+  #
+  # ⚠️ 这里**不能**拼 /api（2026-10-17 修复）。原因：
+  #   /api 是给「接口请求」用的前缀，图片不是接口。拼上去会得到
+  #       https://域名/api/uploads/<uuid>.png
+  #   两个后果：
+  #   ① 请求落到 nginx 的 location /api/（带限流、no-cache），
+  #      不会命中专门为图片写的 location /uploads/（30 天缓存）；
+  #   ② 每张图的 URL 都多一段无意义的 /api，缓存 Key 也更分散。
+  #   正确形态是 https://域名/uploads/<uuid>.png —— 由 nginx 直接转发给后端静态映射。
+  #   兼容性：历史数据里已存的 /api/uploads/... 仍然能访问（见 nginx 里对应的
+  #   兼容 location），所以改这一行不会让老头像失效。
+  APP_UPLOAD_PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost}
   #
   # ② 下面这些是**服务端之间**的回调地址（后端 → 自己容器内的 MockPay、第三方 → 后端），
   #    只在容器网络里发生，浏览器不参与，所以保持容器内直连 8080 最快也最稳。
