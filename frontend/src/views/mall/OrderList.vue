@@ -42,7 +42,7 @@
               </div>
               <div class="body">
                 <div v-for="item in order.items || []" :key="item.productId" class="item-row">
-                  <img v-if="item.productImage" :src="item.productImage" />
+                  <img v-if="item.productImage" :src="resolveImage(item.productImage, IMG_SIZE.mini)" loading="lazy" decoding="async" />
                   <div v-else class="img-placeholder">{{ (item.productName || '?').slice(0, 1) }}</div>
                   <span class="item-name">{{ item.productName }}</span>
                   <span class="item-price">¥{{ Number(item.productPrice).toFixed(2) }}</span>
@@ -88,6 +88,7 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
+import { resolveImage, IMG_SIZE } from '@/utils/image'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Order, Pay, Refund } from '@/api'

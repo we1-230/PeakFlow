@@ -18,7 +18,7 @@
           <div class="large-img-wrap">
             <img
               v-if="product.image"
-              :src="product.image"
+              :src="resolveImage(product.image, IMG_SIZE.large)"
               :alt="product.name"
               @error="product.image = ''"
             />
@@ -189,6 +189,7 @@
 
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { resolveImage, IMG_SIZE } from '@/utils/image'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Loading } from '@element-plus/icons-vue'

@@ -81,13 +81,58 @@ location ^~ /.well-known/acme-challenge/ {
 # ---------------------------------------------------------------------------
 location /assets/ {
     include     /etc/nginx/snippets/peakflow-security-headers.inc;
-    expires     1y;      # ⇒ Cache-Control: max-age=31536000
+    # immutable：告诉浏览器「这个 URL 的内容永不变化，不要再发条件请求」。
+    # 文件名里已带内容 hash，所以是安全的；能省掉每次访问的一次 304 往返
+    # —— 对跨国链路（RTT≈330ms）来说，每个资源省 330ms 很可观。
+    #
+    # ⚠️ 这里**不能同时用 expires**：expires 1y 会另外下发一条
+    #    `Cache-Control: max-age=31536000`，两条 Cache-Control 并存属于
+    #    响应头重复，不同浏览器取值行为不一致。统一由 add_header 表达。
+    add_header  Cache-Control "public, max-age=31536000, immutable";
     access_log  off;
 }
 
 location = /index.html {
     include /etc/nginx/snippets/peakflow-security-headers.inc;
     expires -1;          # ⇒ Cache-Control: no-cache
+}
+
+# ---------------------------------------------------------------------------
+# 用户上传的图片（头像等） —— 2026-10-17 修复的**功能缺陷**，不只是性能问题
+#
+# 【原来的问题】
+#   后端未配 OSS 时降级把文件写到容器内 ./uploads，并返回
+#       https://域名/uploads/<uuid>.png
+#   但 nginx 里**没有 /uploads/ 的 location** ⇒ 请求落到最后的
+#       location / { try_files $uri $uri/ /index.html; }
+#   nginx 静态目录里当然没有这个文件 ⇒ 回退成 index.html
+#   ⇒ 浏览器拿到 200 + text/html + 875 字节的 HTML，
+#      <img> 解码失败，图片**永远显示不出来**（表现为一直空白/转圈）。
+#
+#   实测对照（同一文件，1.33MB 的头像）：
+#       直连 backend1:8080/uploads/xxx.png → 200  image/png  1330273 bytes
+#       经 nginx  https://域名/uploads/xxx.png → 200  text/html      875 bytes
+#   ⇒ 用户说的「头像加载非常慢」，实际是「头像根本加载不出来」。
+#
+# 【为什么转发给后端而不是让 nginx 直接读】
+#   文件在 backend 容器的 /app/uploads（named volume peakflow-uploads）。
+#   nginx 容器没有挂这个卷，直接读读不到。转发给后端复用已有的静态映射
+#   （UploadWebConfig 的 /uploads/**），也不用给 nginx 加挂载。
+#
+# 【缓存】文件名是 UUID、内容永不变化 ⇒ 可以长缓存；30d 配合 immutable，
+#   用户二次访问直接走本地缓存，一个字节都不传（跨国链路上这是最大的收益）。
+# ---------------------------------------------------------------------------
+location ^~ /uploads/ {
+    include     /etc/nginx/snippets/peakflow-security-headers.inc;
+    expires     30d;     # ⇒ Cache-Control: max-age=2592000
+    access_log  off;
+    # 只允许读取，禁止通过该前缀做任何写操作
+    limit_except GET { deny all; }
+    proxy_pass  http://peakflow_backend/uploads/;
+    proxy_set_header Host              $host;
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
 }
 
 # ---------------------------------------------------------------------------

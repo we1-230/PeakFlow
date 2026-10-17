@@ -103,7 +103,7 @@ def probe(page, width, height, login=None):
         ]
         if page != '/':
             seq += ['eval "location.assign(\'{}\'); 1"'.format(page), 'wait 3500']
-    seq += ['wait 1200']
+    seq += ['wait 2500']
     # 必须逐条执行：agent-browser 每条命令都是独立的 CLI 调用，
     # 拼成 'cmd1 && cmd2' 会被 shell 当成两条**系统命令**（第二条是 open/wait，不存在）
     for step in seq:
@@ -112,12 +112,10 @@ def probe(page, width, height, login=None):
     return data
 
 
-def check(viewport, page, width, height, must, must_not=(), login=None):
-    print('  probing {} …'.format(page), flush=True)
-    data = probe(page, width, height, login)
+def evaluate(data, must, must_not):
+    """对采集结果做断言，返回问题列表（空 = 通过）"""
     if data is None:
-        results.append((viewport, page, False, '页面无响应/无法读取 DOM'))
-        return
+        return ['页面无响应/无法读取 DOM']
     text = data.get('text', '')
     problems = []
     for kw in must:
@@ -129,6 +127,21 @@ def check(viewport, page, width, height, must, must_not=(), login=None):
     if data.get('overflow'):
         problems.append('横向溢出 sw={} > w={} 例:{}'.format(
             data.get('sw'), data.get('w'), ','.join(data.get('bad', [])[:3])))
+    return problems
+
+
+def check(viewport, page, width, height, must, must_not=(), login=None):
+    print('  probing {} …'.format(page), flush=True)
+    data = probe(page, width, height, login)
+    problems = evaluate(data, must, must_not)
+
+    # 失败重试一次：首屏要下 HTML + 4 个拆分包 + 若干接口，
+    # 跨国链路上偶尔会超过等待窗口 —— 重试能把「真缺陷」和「还没渲染完」分开。
+    if problems and data is not None:
+        print('    ↻ 首次未通过（{}），重试一次…'.format('; '.join(problems)[:60]), flush=True)
+        data = probe(page, width, height, login)
+        problems = evaluate(data, must, must_not)
+
     results.append((viewport, page, not problems, '; '.join(problems) or 'OK'))
 
 

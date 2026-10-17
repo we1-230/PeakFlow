@@ -7,6 +7,15 @@
   <link rel="icon" type="image/svg+xml"
         href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='18' fill='%23ff5000'/%3E%3Ctext x='32' y='46' font-family='Arial,Helvetica,sans-serif' font-size='44' font-weight='700' fill='%23ffffff' text-anchor='middle'%3EA%3C/text%3E%3C/svg%3E" />
   <title>全智能秒杀商城</title>
+  <!--
+    资源预连接（2026-10-17 性能优化）
+    首页商品图来自 images.unsplash.com。每次跨域取图都要先做 DNS 解析 + TCP + TLS，
+    在跨国链路上这三步就是 3 个 RTT（≈1 秒）。preconnect 让浏览器在解析 HTML 的
+    同时就把连接建好，等用到图片时直接发请求。
+    dns-prefetch 是给不支持 preconnect 的老浏览器的降级（只做 DNS）。
+  -->
+  <link rel="preconnect" href="https://images.unsplash.com" crossorigin />
+  <link rel="dns-prefetch" href="https://images.unsplash.com" />
 </head>
 <body>
   <div id="app"></div>

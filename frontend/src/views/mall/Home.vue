@@ -14,7 +14,16 @@
             <p class="carousel-sub">{{ slide.sub }}</p>
             <button class="carousel-btn" @click="slide.action === 'seckill' ? scrollToSeckill() : goCategory()">{{ slide.btn }}</button>
           </div>
-          <img v-if="slide.img" :src="slide.img" class="carousel-img" :alt="slide.title" @error="$event.target.style.display='none'" />
+          <!-- 轮播图是首屏最大的图片：走 resolveImage 统一降质量（q=65），
+               并保留 CDN 的 auto=format（浏览器支持 webp/avif 时自动换格式） -->
+          <img
+            v-if="slide.img"
+            :src="resolveImage(slide.img, IMG_SIZE.banner)"
+            class="carousel-img"
+            :alt="slide.title"
+            decoding="async"
+            @error="$event.target.style.display='none'"
+          />
         </div>
       </el-carousel-item>
     </el-carousel>
@@ -50,8 +59,10 @@
             <div class="img-wrap">
               <img
                 v-if="p.image"
-                :src="p.image"
+                :src="resolveImage(p.image, IMG_SIZE.thumb)"
                 :alt="p.name"
+                loading="lazy"
+                decoding="async"
                 @error="p.image = ''"
               />
               <div v-else class="img-placeholder">{{ p.name.slice(0, 1) }}</div>
@@ -84,8 +95,10 @@
             <div class="img-wrap">
               <img
                 v-if="p.image"
-                :src="p.image"
+                :src="resolveImage(p.image, IMG_SIZE.thumb)"
                 :alt="p.name"
+                loading="lazy"
+                decoding="async"
                 @error="p.image = ''"
               />
               <div v-else class="img-placeholder">{{ p.name.slice(0, 1) }}</div>
@@ -131,6 +144,7 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
+import { resolveImage, IMG_SIZE } from '@/utils/image'
 import { useRouter } from 'vue-router'
 import { Product, Seckill, Category } from '@/api'
 import { useAuthStore } from '@/stores/auth'
