@@ -807,6 +807,7 @@ docker compose logs backend1 backend2 | grep "本轮已由其他实例执行"
 |---|---|
 | [`docs/API.md`](docs/API.md) | **接口文档**：通用约定、业务码表、状态机枚举、71 个端点总览、核心链路请求响应示例、权限对照；含 `stock` vs `seckillStock` 语义对照与 `/user/loginLog` 真实字段 |
 | [`CHANGELOG.md`](CHANGELOG.md) | **更新日志**：按版本记录新增/修复/变更/测试，含每条修复的根因一句话 |
+| [`docs/从本地到线上-完整复盘.md`](docs/从本地到线上-完整复盘.md) | **完整复盘**：本地→上线→域名→线上维修→再次上线的全过程，40+ 个真实坑按价值分 S/A/B 级，含 6 条可复用规矩与本项目自身的事故记录 |
 | [`docs/上线部署全流程.md`](docs/上线部署全流程.md) | **部署手册**：从裸机到 HTTPS 的全流程 + **21 条真实踩坑清单** + 改代码上线/回滚 |
 | [`backend/postman/README.md`](backend/postman/README.md) | 接口测试权威规范：分组设计、断言标准、变量传递、7 个已修复缺陷复盘 |
 | [`deploy/mysql/README.md`](deploy/mysql/README.md) | 数据库初始化：五层文件切分、演示/生产两场景、生产账号授权三步法 |
