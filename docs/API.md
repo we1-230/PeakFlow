@@ -391,6 +391,24 @@ stateDiagram-v2
 | POST | `/user/password` | 自助改密（校验旧密码） | 🔒 |
 | POST | `/user/loginLog` | 登录日志分页查询 | 🔒 |
 
+**`/user/loginLog` 响应字段（2026-10-17 校正）**
+
+登录日志对应 `login_log` 表，**只有 6 个字段**，没有 `status` / `location` / `device`：
+
+```json
+{
+  "list": [
+    { "id": 47, "userId": 32, "username": "malluser",
+      "ip": "223.104.150.216", "loginTime": "2026-10-17 10:30:51", "remark": "登录成功" }
+  ],
+  "total": 12, "pages": 2, "pageNum": 1, "pageSize": 10
+}
+```
+
+- 日志**仅在登录成功后异步写入**（`UserServiceImpl#login` 第 10 步），故 `remark` 恒为「登录成功」；
+  前端展示「状态」应读 `remark`，**不要读不存在的 `status`**（曾因此把成功显示成失败）。
+
+
 ### 7.3 地址 `/address`（6）
 
 | 方法 | 路径 | 说明 | 鉴权 |
@@ -412,6 +430,16 @@ stateDiagram-v2
 | PUT | `/product/update` | 更新商品 | 🔑 `product:manage` |
 | PUT | `/product/status/{id}` | 上下架（query `status`）；**秒杀商品会被拒绝** | 🔑 `product:manage` |
 | DELETE | `/product/delete/{id}` | 删除商品（在途订单/未完结退款占用时拒绝） | 🔑 `product:manage` |
+
+**⚠️ `stock` 与 `seckillStock` 是两个独立库存，前端勿混用（2026-10-17）**
+
+| 字段 | 含义 | 普通商品 | 秒杀商品 |
+|---|---|---|---|
+| `stock` | 普通库存 | 真实可售量 | **恒为 0** |
+| `seckillStock` | 秒杀库存 | 无意义（可为 null） | 真实可抢量 |
+
+`isSeckill=1` 时页面展示与售罄判断都必须读 `seckillStock`；
+只有秒杀通道能售卖该商品，且**同一用户限购 1 件**（`order.uk_seckill_user_product` 唯一索引保证）。
 
 ### 7.5 分类 `/category`（4）
 

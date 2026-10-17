@@ -491,7 +491,7 @@ npm run dev          # http://localhost:3000（需叠加 dev 覆盖文件或本�
 
 > 仅在加载了 `deploy/mysql/init/04-demo-account.sql` 的开发/演示环境可用。
 
-| 账号 | 密码 | 角色 | 权限范围 |
+| 账号 | 密码（本地种子） | 角色 | 权限范围 |
 |---|---|---|---|
 | `pfadmin` | `Admin123456` | 超级管理员 | 全部 11 个权限点 |
 | `sysadmin` | `Admin123456` | 超级管理员 | 全部 11 个权限点 |
@@ -499,7 +499,12 @@ npm run dev          # http://localhost:3000（需叠加 dev 覆盖文件或本�
 | `ordersvc` | `Service123456` | 订单客服 | 订单查询/发货 + 退款查询/审核 + 看板 |
 | `malluser` | `User123456` | 普通用户 | 仅自己的订单/地址/购物车 |
 
+**本地/演示环境**照上表登录。**生产环境**不加载该 SQL（密码全程不落仓库），
+账号通过「注册接口 + 授权脚本」创建，密码由运维单独设定并保管 ——
+上面这套明文密码在生产**完全无效**。
+
 **商城端登录**用 `malluser` 或 `pfadmin`；**管理后台**（`/admin/login`）需用带管理权限的账号（如 `pfadmin`）。
+后台菜单按权限点动态渲染：`productops` 只看到商品/分类/秒杀，`ordersvc` 只看到订单/退款。
 
 ### RBAC 模型
 
@@ -568,6 +573,24 @@ npm run test:integration  # 集成测试（真联调：需要后端在跑）
 npm run test:regression   # 回归测试（真联调，跑 test/regression）
 npm run test:ui           # 可视化界面
 ```
+
+当前单元测试规模：**15 个文件 / 122 个用例，全绿**（2026-10-17）。按领域分层：
+
+| 目录 | 覆盖内容 |
+|---|---|
+| `test/core/` | 业务链路核心逻辑：登录、支付、退款、秒杀（含轮询）、头像、收银台页面、库存口径、错误分类、购物车角标、协议弹窗、登录日志 |
+| `test/views/` | 页面级渲染与交互：商城（首页/列表/详情/购物车/订单）、后台（仪表盘/商品/订单/用户/退款） |
+| `test/integration/`、`test/regression/` | 真联调用例（走 `vitest.integration.config.js`，不装 MSW） |
+
+**写测试的两条硬规矩**（均来自真实教训）：
+
+1. **桩数据必须与后端契约一致**。`test/handlers.js` 的登录日志桩曾臆造 `status/location/device`
+   三个后端根本不存在的字段，导致前端「读 `undefined` 一律显示失败」的 bug 长期测不出来。
+   接口字段不确定时，先 `curl` 一次真实响应，照抄字段名与类型。
+2. **关键页面脚本用真实执行而非 mock**。`test/core/cashier-page.test.js` 直接读取
+   `backend/.../mock-pay-cashier.html`、取出内联 `<script>` 在 happy-dom 里执行，
+   锁住「接口地址必须是文档相对路径」这类只有真实跑起来才会暴露的问题。
+   注意 happy-dom 的 `Response` polyfill 状态码不可靠（恒 500），桩要用纯对象 `{ ok, status, json }`。
 
 > ⚠️ `test:integration` 与 `test:regression` 用的是 `vitest.integration.config.js`，**不装 MSW**，
 > 属真联调测试：必须先按 6.1/6.4 把中间件与后端跑起来，否则会大面积 `ECONNREFUSED 127.0.0.1:8080`。
@@ -662,6 +685,24 @@ docker compose logs backend1 backend2 | grep "本轮已由其他实例执行"
 应用启动时**不会**自动把秒杀库存写进 Redis。首次下单若发现库存 Key 缺失（Lua 返回 `-2`），
 会从 DB 重建后重试一次，实现自愈；也可由管理员调用 `GET /seckill/preheat/all` 全量预热。
 
+### 10.2.1 ⚠️ `stock` 与 `seckillStock` 是两个独立库存
+
+| 字段 | 含义 | 普通商品 | 秒杀商品 |
+|---|---|---|---|
+| `stock` | 普通库存 | 真实可售量 | **恒为 0**（秒杀库存不占用普通库存） |
+| `seckillStock` | 秒杀库存 | 无意义 | 真实可抢量 |
+
+所以**任何**展示「还有多少件」或判断「是否售罄」的地方，都必须先看 `isSeckill`
+再决定读哪个字段。2026-10-17 的线上问题就是这么来的：详情页全读 `stock`（秒杀商品为 0），
+只有抢购按钮读 `seckillStock`，于是「页面说卖完了、点下去却买到了」。
+前端已抽成 `availableStock` / `stockLabel` 计算属性统一口径，详见 `docs/API.md`。
+
+**秒杀限购 1 件**由 `order` 表的生成列 `seckill_slot = concat(user_id,':',seckill_product_id)`
+配合唯一索引 `uk_seckill_user_product` 保证（仅在 `order_type=1 且 status 不在 (4,5)` 时生成，
+因此**取消/关闭后名额自动释放**）。注意：释放名额时**必须同步清理 Redis 购买权门闩**
+`seckill:order:success:{userId}:{productId}`，否则 DB 允许再抢、Redis 却拦 24 小时
+（2026-10-17 已修复并补测试）。
+
 ### 10.3 订单与退款状态机
 
 **订单状态**（`OrderStatus`）：`0 待付款 → 1 已付款 → 2 已发货 → 3 已完成`，
@@ -742,7 +783,9 @@ docker compose logs backend1 backend2 | grep "本轮已由其他实例执行"
 
 | 文档 | 内容 |
 |---|---|
-| [`docs/API.md`](docs/API.md) | **接口文档**：通用约定、业务码表、状态机枚举、71 个端点总览、核心链路请求响应示例、权限对照 |
+| [`docs/API.md`](docs/API.md) | **接口文档**：通用约定、业务码表、状态机枚举、71 个端点总览、核心链路请求响应示例、权限对照；含 `stock` vs `seckillStock` 语义对照与 `/user/loginLog` 真实字段 |
+| [`CHANGELOG.md`](CHANGELOG.md) | **更新日志**：按版本记录新增/修复/变更/测试，含每条修复的根因一句话 |
+| [`docs/上线部署全流程.md`](docs/上线部署全流程.md) | **部署手册**：从裸机到 HTTPS 的全流程 + **21 条真实踩坑清单** + 改代码上线/回滚 |
 | [`backend/postman/README.md`](backend/postman/README.md) | 接口测试权威规范：分组设计、断言标准、变量传递、7 个已修复缺陷复盘 |
 | [`deploy/mysql/README.md`](deploy/mysql/README.md) | 数据库初始化：五层文件切分、演示/生产两场景、生产账号授权三步法 |
 | [`.env.example`](.env.example) | 环境变量模板：32 项变量按域分组，含必填性与生产注意事项 |
