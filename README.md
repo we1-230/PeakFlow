@@ -574,7 +574,7 @@ npm run test:regression   # 回归测试（真联调，跑 test/regression）
 npm run test:ui           # 可视化界面
 ```
 
-当前单元测试规模：**19 个文件 / 176 个用例，全绿**（2026-10-17）。按领域分层：
+当前单元测试规模：**20 个文件 / 180 个用例，全绿**（2026-10-17）。按领域分层：
 
 | 目录 | 覆盖内容 |
 |---|---|
@@ -587,7 +587,11 @@ npm run test:ui           # 可视化界面
 1. **桩数据必须与后端契约一致**。`test/handlers.js` 的登录日志桩曾臆造 `status/location/device`
    三个后端根本不存在的字段，导致前端「读 `undefined` 一律显示失败」的 bug 长期测不出来。
    接口字段不确定时，先 `curl` 一次真实响应，照抄字段名与类型。
-2. **关键页面脚本用真实执行而非 mock**。`test/core/cashier-page.test.js` 直接读取
+2. **本机跑单测要加 `--no-file-parallelism`**。并行 worker 会同时往系统临时目录写转换产物，
+   在受限环境里可能 `EPERM` 失败并**静默跳过整个测试文件**（实测同一套用例总数在
+   176/164/158 之间漂移，看着全绿其实少跑了文件）。串行执行的结果才可信；
+   CI 环境不需要这个参数。
+3. **关键页面脚本用真实执行而非 mock**。`test/core/cashier-page.test.js` 直接读取
    `backend/.../mock-pay-cashier.html`、取出内联 `<script>` 在 happy-dom 里执行，
    锁住「接口地址必须是文档相对路径」这类只有真实跑起来才会暴露的问题。
    注意 happy-dom 的 `Response` polyfill 状态码不可靠（恒 500），桩要用纯对象 `{ ok, status, json }`。
