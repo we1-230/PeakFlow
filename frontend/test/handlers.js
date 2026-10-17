@@ -140,9 +140,28 @@ export const handlers = [
     })
     return ok(null, '添加成功')
   }),
-  http.post('/api/cart/updateQuantity', () => ok(null, '修改成功')),
-  http.delete('/api/cart/delete/:productId', () => ok(null, '删除成功')),
-  http.delete('/api/cart/clear', () => ok(null, '清空成功')),
+  // ⚠️ 这三个必须真的改桩数据，不能只回 "成功"：
+  //    早期它们只返回成功码而不动 cartStore，导致「删完就空」「改数量生效」
+  //    这类行为在单测里永远测不出来（与登录日志桩臆造字段同一类问题）。
+  http.post('/api/cart/updateQuantity', async ({ request }) => {
+    const url = new URL(request.url)
+    const productId = Number(url.searchParams.get('productId'))
+    const quantity = Number(url.searchParams.get('quantity') || 1)
+    const hit = cartStore.find(i => i.productId === productId)
+    if (!hit) return bizError('购物车中不存在该商品')
+    hit.quantity = quantity
+    return ok(null, '修改成功')
+  }),
+  http.delete('/api/cart/delete/:productId', ({ params }) => {
+    const productId = Number(params.productId)
+    const idx = cartStore.findIndex(i => i.productId === productId)
+    if (idx >= 0) cartStore.splice(idx, 1)
+    return ok(null, '删除成功')
+  }),
+  http.delete('/api/cart/clear', () => {
+    cartStore.length = 0
+    return ok(null, '清空成功')
+  }),
   http.get('/api/cart/list', () => ok(cartStore)),
   // 注：后端没有修改购物车勾选的接口，前端已改为本地维护勾选态（stores/cart.js），
   //     所以这里不再需要 /cart/select、/cart/selected 的占位 handler。
