@@ -60,6 +60,23 @@
   .el-dialog { width: 92% !important; max-width: 92vw; margin-top: 6vh !important; }
   .el-message-box { width: 88% !important; max-width: 420px; }
 
+  /* ---------- 分页器：窄屏溢出（实测秒杀页 375px 时 sw=422） ----------
+     布局是 "total, prev, pager, next, sizes"，四段并排必然超宽。
+     手机端做法：允许换行 + 隐藏「每页条数」下拉（触屏上选择成本高、收益低），
+     保证「上一页/页码/下一页」这一核心操作完整可见。桌面端不受影响。 */
+  .el-pagination {
+    flex-wrap: wrap !important;
+    gap: 4px 8px;
+    justify-content: center;
+    padding: 8px 0;
+  }
+  .el-pagination .el-pagination__sizes { display: none !important; }
+  .el-pagination .el-pagination__total { font-size: 12px; }
+  .el-pagination button,
+  .el-pagination .el-pager li { min-width: 28px; }
+  /* 页码过多时只显示少量页码，避免撑破一行 */
+  .el-pagination .el-pager li:not(.is-active):not(:first-child):not(:last-child) { display: none; }
+
   /* ---------- 通用按钮：触控目标加大、间距收紧 ---------- */
   .btn-large { padding: 12px 28px !important; font-size: 15px !important; }
 
