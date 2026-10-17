@@ -164,6 +164,9 @@ describe.skipIf(!LIVE)('联调（真实后端）· 购物车 / 下单 / 订单�
 
   it('11. 加购物车 → 出现在列表 → 改数量生效', async () => {
     as(state.userToken)
+    // 购物车存在 Redis（30 天），上一轮回归的残留会让「加 1 再改成 2」变成 3。
+    // 断言的是「加购与改数量这两个动作生效」，所以必须先清空到已知状态。
+    await Cart.clear().catch(() => {})
     await Cart.add(state.productId, 1)
     let list = await Cart.list()
     const item = list.find(i => i.productId === state.productId)

@@ -27,13 +27,44 @@ results = []   # (分组, 用例, 结果, 详情)
 # 后端对「同一用户 + 同一商品清单」有 MD5 幂等锁（"订单重复提交"）。
 # 同一脚本里多次用相同 productId+quantity 下单会被拒 —— 这是正确的防重设计，
 # 测试侧必须让每次下单的清单不同（递增数量），否则会误判成下单功能坏了。
-_order_seq = 0
+# ⚠️ 起始值必须随每次运行变化，不能从 1 开始。
+#    原因：后端的幂等锁 Key 是「用户 + 商品清单 MD5」，且会在 Redis 里存活一段时间。
+#    如果脚本每次都从 quantity=1 开始，第二次运行的第一单会和上一次的第一单
+#    清单完全相同 ⇒ 被正确拒绝（"订单重复提交"）⇒ 看起来像下单功能坏了。
+#    实测踩过一次：手工下单正常，脚本却报 orderId=None。
+import time as _t0
+
+# ---------------------------------------------------------------------------
+# 下单数量的约束（两条，都实测踩过）
+# ---------------------------------------------------------------------------
+# ① 后端有业务上限：BusinessConstants.MAX_CART_ITEM_QUANTITY = 10
+#    —— 曾用时间戳当数量（% 100000 / % 30），直接被拒
+#    「单个商品数量不能超过10」，看着像下单功能坏了。
+# ② 后端对「同用户 + 同商品清单」有 MD5 幂等锁，且 Key 在 Redis 里存活一段时间。
+#    如果每轮都从 quantity=1 开始，第二轮的同一单会被判「订单重复提交」。
+#
+# 所以做法是：在 1..10 这个合法区间里，从「秒数决定的位置」开始轮转尝试，
+# 撞上幂等锁就换下一个数量。既不会超上限，也不会被历史订单挡住。
+def qty_candidates():
+    """返回本次运行尝试用的数量序列（1..10 的循环排列，合法且不易与历史重复）"""
+    start = int(_t0.time()) % 10
+    return [start + 1 + i if start + 1 + i <= 10 else (start + 1 + i) - 10
+            for i in range(10)]
 
 
-def next_qty():
-    global _order_seq
-    _order_seq += 1
-    return _order_seq
+def create_order(product_id, address_id, remark):
+    """下单，自动规避「同清单幂等锁」：逐个试合法数量直到成功"""
+    last = (0, {})
+    for q in qty_candidates():
+        st, r = call('POST', '/order/create', {
+            'addressId': address_id,
+            'items': [{'productId': product_id, 'quantity': q}],
+            'remark': remark,
+        }, token=tokens['malluser'])
+        if biz(st, r) == 200:
+            return st, r
+        last = (st, r)
+    return last
 
 
 def call(method, path, body=None, token=None):
@@ -147,11 +178,10 @@ if addr is None:
     addr = next(a for a in alist if a.get('receiverName') == 'E2E验证')
 record('地址', '收货地址就绪', addr is not None, f"addressId={addr.get('id')}")
 
-st, r = call('POST', '/order/create', {'addressId': addr['id'],
-                                       'items': [{'productId': product['id'], 'quantity': next_qty()}],
-                                       'remark': '回归测试订单'}, token=tok)
+st, r = create_order(product['id'], addr['id'], '回归测试订单')
 order_id = (r.get('data') or {}).get('id')
-record('下单', '创建订单', order_id is not None, f'orderId={order_id}')
+record('下单', '创建订单', order_id is not None,
+       f"orderId={order_id} code={biz(st, r)} msg={r.get('message')}")
 
 st, r = call('GET', f'/order/detail/{order_id}', token=tok)
 record('订单查询', '订单详情（状态=待付款0）', biz(st, r) == 200 and (r.get('data') or {}).get('status') == 0)
@@ -168,6 +198,25 @@ record('订单查询', '取消后状态=已取消4', (r.get('data') or {}).get('
 
 # ==================== C. 秒杀高流量联调 ====================
 print('\n========== C. 秒杀高流量（16 并发） ==========')
+
+# 前置清理：取消该用户未完成的秒杀订单。
+# 为什么必须做：秒杀限购 1 件由 `order.seckill_slot` 唯一索引 + Redis 门闩共同保证，
+# 上一轮回归如果留下一个「待付款」的秒杀订单，本轮再抢会被**正确地**拦下
+# （"您已参与过该秒杀活动"），看起来像秒杀下单坏了。
+# 走 /order/cancel 而不是直接改库：这是正常的业务操作，
+# 会同时释放 DB 名额与 Redis 门闩，与真实用户操作路径一致。
+st, r = call('POST', '/order/list', {'pageNum': 1, 'pageSize': 50}, token=tokens['malluser'])
+_my_orders = (r.get('data') or {}).get('list') or []
+# ⚠️ 订单列表 VO 里的字段是 `orderType`（0=普通 1=秒杀），**没有 isSeckill**。
+#    一开始按 o.get('isSeckill') 过滤，恒为 None ⇒ 永远匹配不到 ⇒ 清理静默失效。
+_pending_seckill = [o for o in _my_orders
+                    if o.get('orderType') == 1 and o.get('status') == 0]
+for o in _pending_seckill:
+    call('POST', '/order/cancel/' + str(o['id']), None, token=tokens['malluser'])
+if _pending_seckill:
+    print(f'  · 已清理 {len(_pending_seckill)} 个未完成的秒杀订单（释放限购名额）')
+    _t0.sleep(1)
+
 st, r = call('POST', '/seckill/list', {'pageNum': 1, 'pageSize': 20})
 sklist = (r.get('data') or {}).get('list') or (r.get('data') if isinstance(r.get('data'), list) else [])
 now_ms = time.time() * 1000
@@ -285,11 +334,7 @@ record('角色写', 'ordersvc 越权新增分类被拒', biz(st, r) in (403, 401
 print('\n========== E. 售后链路（订单客服） ==========')
 tok = tokens['malluser']
 
-st, r = call('POST', '/order/create', {
-    'addressId': addr['id'],
-    'items': [{'productId': product['id'], 'quantity': next_qty()}],
-    'remark': '回归-售后链路',
-}, token=tok)
+st, r = create_order(product['id'], addr['id'], '回归-售后链路')
 refund_order_id = (r.get('data') or {}).get('id')
 record('售后', '创建售后用订单', refund_order_id is not None, 'orderId=%s' % refund_order_id)
 
