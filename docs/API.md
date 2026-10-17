@@ -425,7 +425,7 @@ stateDiagram-v2
 | 方法 | 路径 | 说明 | 鉴权 |
 |---|---|---|---|
 | POST | `/product/page` | 商品分页列表（支持分类、关键词） | 🔓 |
-| GET | `/product/detail/{id}` | 商品详情 | 🔓 |
+| GET | `/product/detail/{id}` | 商品详情；**id 不存在时返回 `code=3005 商品不存在`**（2026-10-17 起，不再返回 `200 + data:null`） | 🔓 |
 | POST | `/product/add` | 新增商品 | 🔑 `product:manage` |
 | PUT | `/product/update` | 更新商品 | 🔑 `product:manage` |
 | PUT | `/product/status/{id}` | 上下架（query `status`）；**秒杀商品会被拒绝** | 🔑 `product:manage` |

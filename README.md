@@ -574,11 +574,11 @@ npm run test:regression   # 回归测试（真联调，跑 test/regression）
 npm run test:ui           # 可视化界面
 ```
 
-当前单元测试规模：**15 个文件 / 122 个用例，全绿**（2026-10-17）。按领域分层：
+当前单元测试规模：**19 个文件 / 176 个用例，全绿**（2026-10-17）。按领域分层：
 
 | 目录 | 覆盖内容 |
 |---|---|
-| `test/core/` | 业务链路核心逻辑：登录、支付、退款、秒杀（含轮询）、头像、收银台页面、库存口径、错误分类、购物车角标、协议弹窗、登录日志 |
+| `test/core/` | 业务链路核心逻辑：登录、支付（含异常路径）、退款、秒杀（含轮询）、头像、收银台页面、库存口径、错误分类、购物车角标、协议弹窗、登录日志；**组件层**（品牌组件 props、布局搜索/退出/权限菜单、移动端适配结构性守卫、商城边界与空状态） |
 | `test/views/` | 页面级渲染与交互：商城（首页/列表/详情/购物车/订单）、后台（仪表盘/商品/订单/用户/退款） |
 | `test/integration/`、`test/regression/` | 真联调用例（走 `vitest.integration.config.js`，不装 MSW） |
 
@@ -595,6 +595,24 @@ npm run test:ui           # 可视化界面
 > ⚠️ `test:integration` 与 `test:regression` 用的是 `vitest.integration.config.js`，**不装 MSW**，
 > 属真联调测试：必须先按 6.1/6.4 把中间件与后端跑起来，否则会大面积 `ECONNREFUSED 127.0.0.1:8080`。
 > 只有 `npm test`（`vitest.config.js`）用 MSW 拦截 HTTP，可脱离后端独立运行。
+
+### 9.2.1 联调套件与可重复回归（对真实后端）
+
+仓库里另有三个**面向真实部署**的测试资产，和上面脱离后端的单测互补：
+
+| 资产 | 覆盖 | 怎么跑 |
+|---|---|---|
+| `frontend/test/integration/live.test.js` | 走前端 `api.js` 真实代码路径（axios 拦截器/JWT/错误分类）打真实后端：登录与身份、三角色权限矩阵、购物车/下单/查询、支付全链路、秒杀 8 并发 | `PEAKFLOW_LIVE=1 npx vitest run test/integration/live.test.js --config vitest.integration.config.js` |
+| `tools/ui_regression.py` | **桌面 1366 + 手机 390** 逐页回归：渲染关键字、横向溢出探测（溢出时直接报出是哪个元素） | `python3 tools/ui_regression.py`（`ONLY=mobile` 只跑手机端） |
+| `tools/regression_prod.py` | API 层 64 项：登录/权限矩阵（27 项）/购物车订单/秒杀并发/角色写操作/售后审核/负向边界 | `python3 tools/regression_prod.py` |
+
+三者都用环境变量配置账号与地址（默认演示账号）。**两个必须注意的坑**（脚本注释里也写了）：
+
+1. `live.test.js` 顶部有 `@vitest-environment-options {"url": "https://peakflow.top/"}` ——
+   生产 nginx 的 CORS 白名单是空的（正确配置，应用本身同源访问），用 localhost 当 origin
+   会被浏览器策略全量拦截。换域名时改这一行。
+2. `ui_regression.py` 调 `agent-browser` 时必须把输出重定向到文件：浏览器守护进程会继承
+   stdout，用管道会永远等不到 EOF（表现为「卡死」，其实早就执行完了）。
 
 ### 9.3 容器内一键冒烟（端到端）
 

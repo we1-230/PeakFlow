@@ -68,7 +68,8 @@ def biz(st, r):
 print('\n========== A. 登录 / 权限 ==========')
 
 # 错误密码用一次性账号，避免污染演示账号的失败计数（>=2 次会触发验证码）
-WP = 'regress_burst_' + str(int(time.time()))
+# 用户名有长度上限（LoginDto/RegisterDto 校验），太长会 1003 参数校验失败
+WP = 'rgb' + str(int(time.time()))[-9:]
 call('POST', '/auth/register', {'username': WP, 'password': PW,
      'email': f'{WP}@peakflow.top', 'phone': '13800009998', 'nickname': '回归-错误密码'})
 st, r = call('POST', '/auth/login', {'account': WP, 'password': 'wrong-password'})
