@@ -135,12 +135,18 @@
             <el-table-column prop="id" label="序号" width="70" align="center" />
             <el-table-column prop="loginTime" label="登录时间" min-width="160" />
             <el-table-column prop="ip" label="IP地址" min-width="130" />
-            <el-table-column prop="location" label="登录地点" min-width="120" />
-            <el-table-column prop="device" label="设备" min-width="120" />
-            <el-table-column prop="status" label="状态" width="90" align="center">
+            <!--
+              状态列说明（2026-10-17 修复「登录成功却显示失败」）：
+              后端 login_log 表只有 id/user_id/username/ip/login_time/remark，
+              没有 status/location/device 字段（见 UserLoginLog 实体与 01-schema.sql）。
+              原实现读 row.status ⇒ 恒为 undefined ⇒ 三元判断落到「失败」，与事实相反。
+              日志实际只在登录成功后异步写入（UserServiceImpl#login 第 10 步），
+              所以这里按 remark 展示结果，缺省即「登录成功」。
+            -->
+            <el-table-column prop="remark" label="状态" width="110" align="center">
               <template #default="{ row }">
-                <el-tag :type="row.status === 1 ? 'success' : 'danger'" size="small">
-                  {{ row.status === 1 ? '成功' : '失败' }}
+                <el-tag :type="row.remark && row.remark.includes('失败') ? 'danger' : 'success'" size="small">
+                  {{ row.remark || '登录成功' }}
                 </el-tag>
               </template>
             </el-table-column>
