@@ -14,7 +14,16 @@
             <p class="carousel-sub">{{ slide.sub }}</p>
             <button class="carousel-btn" @click="slide.action === 'seckill' ? scrollToSeckill() : goCategory()">{{ slide.btn }}</button>
           </div>
-          <img v-if="slide.img" :src="slide.img" class="carousel-img" :alt="slide.title" @error="$event.target.style.display='none'" />
+          <!-- 轮播图是首屏最大的图片：走 resolveImage 统一降质量（q=65），
+               并保留 CDN 的 auto=format（浏览器支持 webp/avif 时自动换格式） -->
+          <img
+            v-if="slide.img"
+            :src="resolveImage(slide.img, IMG_SIZE.banner)"
+            class="carousel-img"
+            :alt="slide.title"
+            decoding="async"
+            @error="$event.target.style.display='none'"
+          />
         </div>
       </el-carousel-item>
     </el-carousel>

@@ -29,6 +29,12 @@ export const IMG_SIZE = {
   mini: 200,
   /** 详情页主图：展示位最大约 420px，2x 屏取 800 */
   large: 800,
+  /**
+   * 轮播大图：容器宽度可到 1200px（1366 屏减边距）。
+   * 但它有 h=400 固定高 + fit=crop，按 1000 宽已足够清晰，
+   * 再大只是白烧跨国带宽 —— 轮播是首屏最显眼的图，也是体积最大的一张。
+   */
+  banner: 1000,
 }
 
 const UNSPLASH_HOST = 'images.unsplash.com'

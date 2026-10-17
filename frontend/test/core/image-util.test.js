@@ -27,6 +27,18 @@ describe('resolveImage · 按场景取尺寸', () => {
     expect(u.searchParams.get('w')).toBe(String(IMG_SIZE.thumb))
   })
 
+  it('轮播 banner 档位 = 1000px（首屏最大的图，单独一档）', () => {
+    const u = new URL(resolveImage(UNSPLASH, IMG_SIZE.banner))
+    expect(IMG_SIZE.banner).toBe(1000)
+    expect(u.searchParams.get('w')).toBe('1000')
+  })
+
+  it('轮播 banner 档位 = 1000px（首屏最大的图，单独一档）', () => {
+    const u = new URL(resolveImage(UNSPLASH, IMG_SIZE.banner))
+    expect(IMG_SIZE.banner).toBe(1000)
+    expect(u.searchParams.get('w')).toBe('1000')
+  })
+
   it('质量参数统一降到 65（肉眼无差别，体积小很多）', () => {
     const u = new URL(resolveImage(UNSPLASH, IMG_SIZE.thumb))
     expect(u.searchParams.get('q')).toBe('65')
