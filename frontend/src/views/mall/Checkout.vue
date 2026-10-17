@@ -45,7 +45,7 @@
         <div class="block-title">商品清单</div>
         <div class="summary-list">
           <div v-for="item in items" :key="item.productId" class="summary-item">
-            <img v-if="item.imageUrl" :src="item.imageUrl" class="summary-img" :alt="item.productName" @error="$event.target.style.display='none'" />
+            <img v-if="item.imageUrl" :src="resolveImage(item.imageUrl, IMG_SIZE.mini)" class="summary-img" loading="lazy" decoding="async" :alt="item.productName" @error="$event.target.style.display='none'" />
             <div v-else class="img-placeholder">{{ (item.productName || '?').slice(0, 1) }}</div>
             <span class="summary-name">{{ item.productName }}</span>
             <span class="summary-price"><span class="price-display"><span class="symbol">¥</span>{{ Number(item.price ?? 0).toFixed(2) }}</span></span>
@@ -69,6 +69,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { resolveImage, IMG_SIZE } from '@/utils/image'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Cart, Order, Address, Product } from '@/api'

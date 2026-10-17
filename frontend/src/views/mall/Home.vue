@@ -50,8 +50,10 @@
             <div class="img-wrap">
               <img
                 v-if="p.image"
-                :src="p.image"
+                :src="resolveImage(p.image, IMG_SIZE.thumb)"
                 :alt="p.name"
+                loading="lazy"
+                decoding="async"
                 @error="p.image = ''"
               />
               <div v-else class="img-placeholder">{{ p.name.slice(0, 1) }}</div>
@@ -84,8 +86,10 @@
             <div class="img-wrap">
               <img
                 v-if="p.image"
-                :src="p.image"
+                :src="resolveImage(p.image, IMG_SIZE.thumb)"
                 :alt="p.name"
+                loading="lazy"
+                decoding="async"
                 @error="p.image = ''"
               />
               <div v-else class="img-placeholder">{{ p.name.slice(0, 1) }}</div>
@@ -131,6 +135,7 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
+import { resolveImage, IMG_SIZE } from '@/utils/image'
 import { useRouter } from 'vue-router'
 import { Product, Seckill, Category } from '@/api'
 import { useAuthStore } from '@/stores/auth'

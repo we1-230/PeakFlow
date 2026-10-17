@@ -47,7 +47,7 @@
               </td>
               <td class="col-product">
                 <div class="product-cell" @click="goProduct(item.productId)">
-                  <img v-if="item.imageUrl" :src="item.imageUrl" class="product-img" :alt="item.productName" @error="$event.target.style.display='none'" />
+                  <img v-if="item.imageUrl" :src="resolveImage(item.imageUrl, IMG_SIZE.mini)" class="product-img" loading="lazy" decoding="async" :alt="item.productName" @error="$event.target.style.display='none'" />
                   <div v-else class="img-placeholder">{{ (item.productName || '?').slice(0, 1) }}</div>
                   <span class="product-name">{{ item.productName }}</span>
                 </div>
@@ -96,6 +96,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { resolveImage, IMG_SIZE } from '@/utils/image'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Cart } from '@/api'

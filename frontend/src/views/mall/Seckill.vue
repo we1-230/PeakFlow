@@ -22,7 +22,7 @@
         class="product-card"
       >
         <div class="card-image" @click="goDetail(item)">
-          <img :src="item.image" :alt="item.name" />
+          <img :src="resolveImage(item.image, IMG_SIZE.thumb)" :alt="item.name" loading="lazy" decoding="async" />
           <span v-if="item.soldCount > 100" class="hot-tag">HOT</span>
         </div>
         <div class="card-body">
@@ -133,6 +133,7 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
+import { resolveImage, IMG_SIZE } from '@/utils/image'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Loading } from '@element-plus/icons-vue'
