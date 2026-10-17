@@ -27,15 +27,33 @@ describe('头像上传 & 回显', () => {
     const txt = new File(['hello'], 'a.txt', { type: 'text/plain' })
 
     expect(wrapper.vm.beforeAvatarUpload(txt)).toBe(false)
-    expect(ElMessage.error).toHaveBeenCalledWith('只能上传图片文件')
+    expect(ElMessage.error).toHaveBeenCalledWith('只能上传图片文件（jpg / png / webp）')
   })
 
-  it('上传前校验：超过 2MB 被拒绝', async () => {
+  // 上限从 2MB 放宽到 5MB（2026-10-18）：
+  // 服务端会把图压到最长边 400px（实测 1.6MB → 43KB），
+  // 而手机原图普遍 3~8MB —— 卡 2MB 会让大量真实用户在选图时就被拒绝。
+  it('上传前校验：2.5MB 的手机原图现在放行（旧限制 2MB 会拒掉）', async () => {
     const { wrapper } = await mountUserCenter()
-    const big = pngFile('big.png', 2.5 * 1024 * 1024)
+    const phonePhoto = pngFile('photo.png', 2.5 * 1024 * 1024)
 
-    expect(wrapper.vm.beforeAvatarUpload(big)).toBe(false)
-    expect(ElMessage.error).toHaveBeenCalledWith('图片大小不能超过 2MB')
+    expect(wrapper.vm.beforeAvatarUpload(phonePhoto)).toBe(true)
+    expect(ElMessage.error).not.toHaveBeenCalled()
+  })
+
+  it('上传前校验：刚好 5MB 放行（边界含等号）', async () => {
+    const { wrapper } = await mountUserCenter()
+    expect(wrapper.vm.beforeAvatarUpload(pngFile('edge.png', 5 * 1024 * 1024))).toBe(true)
+  })
+
+  it('上传前校验：超过 5MB 被拒绝，且提示里给出可行建议', async () => {
+    const { wrapper } = await mountUserCenter()
+    const tooBig = pngFile('huge.png', 5.1 * 1024 * 1024)
+
+    expect(wrapper.vm.beforeAvatarUpload(tooBig)).toBe(false)
+    const msg = ElMessage.error.mock.calls.map(c => String(c[0])).join(' ')
+    expect(msg).toContain('5MB')
+    expect(msg).toContain('截图')   // 不只说"不能超过"，还要告诉用户怎么办
   })
 
   it('上传前校验：合法图片放行', async () => {

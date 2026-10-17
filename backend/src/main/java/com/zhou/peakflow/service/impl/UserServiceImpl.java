@@ -24,6 +24,7 @@ import com.zhou.peakflow.mapper.UserMapper;
 import com.zhou.peakflow.pojo.User;
 import com.zhou.peakflow.service.UserService;
 import com.zhou.peakflow.utils.AliOssUtil;
+import com.zhou.peakflow.utils.ImageCompressor;
 import com.zhou.peakflow.utils.JwtUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -33,6 +34,7 @@ import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import javax.imageio.ImageIO;
@@ -67,7 +69,10 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
     private final RedisTemplate<String, Object> redisTemplate;
     // 图片最大限制 2MB
-    private static final int MAX_AVATAR_SIZE = 2 * 1024 * 1024;
+    // 头像原图上限。与 OssUploadServiceImpl（5MB）保持一致 ——
+    // 服务端会把图压到最长边 400px（实测 1.6MB → 43KB），
+    // 输入侧没必要卡在 2MB：手机原图普遍 3~8MB，卡 2MB 会让大量真实用户被直接拒绝。
+    private static final int MAX_AVATAR_SIZE = 5 * 1024 * 1024;
     // 连续登录最大次数
     private static final int MAX_FAIL_COUNT = 5;
     // 非临时密码标记（0-非临时，1-管理员重置后的临时密码）
@@ -408,30 +413,61 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         }
         String ext = originFilename.substring(originFilename.lastIndexOf(".") + 1).toLowerCase();
 
-        // 2. 校验文件大小（与 application.yml 的 max-file-size=2MB 保持一致）
+        // 2. 校验文件大小（与 application.yml 的 max-file-size 保持一致）
         long fileSize = file.getSize();
         if (fileSize > MAX_AVATAR_SIZE) {
             log.warn("头像修改失败：文件大小超限，size={} bytes", fileSize);
-            throw new BusinessException("文件大小不能超过2MB");
+            throw new BusinessException("文件大小不能超过5MB");
         }
 
-        // 3. 校验文件内容是否为真实图片（防把任意文件改名为 .jpg 绕过扩展名校验）
-        try (InputStream in = file.getInputStream()) {
-            if (ImageIO.read(in) == null) {
-                log.warn("头像修改失败：文件内容不是有效图片，filename={}", originFilename);
-                throw new BusinessException("文件内容不是有效图片，请上传真实图片");
-            }
+        // 3. 读入字节（后面校验与压缩都基于同一份字节，避免多次读流）
+        byte[] rawBytes;
+        try {
+            rawBytes = file.getBytes();
         } catch (IOException e) {
             log.error("头像修改失败：文件读取异常", e);
             throw new BusinessException("文件读取失败");
         }
 
-        // 4. 生成唯一文件名（去掉 UUID 连字符）
-        String filename = UUID.randomUUID().toString().replace("-", "") + "." + ext;
+        // 4. 校验文件内容是否为真实图片（防把任意文件改名为 .jpg 绕过扩展名校验）
+        //    ImageIO.read 会抛 IOException，必须在此捕获 —— 校验失败要给出
+        //    「不是有效图片」这种可读提示，而不是让它冒泡成 500。
+        try {
+            if (ImageIO.read(new ByteArrayInputStream(rawBytes)) == null) {
+                log.warn("头像修改失败：文件内容不是有效图片，filename={}", originFilename);
+                throw new BusinessException("文件内容不是有效图片，请上传真实图片");
+            }
+        } catch (IOException e) {
+            log.warn("头像修改失败：图片解码异常，filename={}", originFilename, e);
+            throw new BusinessException("文件内容不是有效图片，请上传真实图片");
+        }
 
-        // 5. 上传文件到OSS
+        // 5. 压缩（2026-10-18 新增）
+        //
+        // ⚠️ 这里是「用户头像」的真实上传路径（/user/avatar → changAvatar）。
+        //    之前只给 /upload/image（后台商品图）加了压缩，导致：
+        //      · 头像仍然原样落盘（线上实测 1.33MB / 1.6MB 单个文件）
+        //      · 服务在境外、国内吞吐约 60KB/s ⇒ 一个头像要传 20 秒以上
+        //    两个上传入口必须用同一套压缩逻辑，否则修了一条、另一条照旧。
+        ImageCompressor.Result compressed =
+                ImageCompressor.compress(rawBytes, "." + ext, ImageCompressor.MAX_EDGE_AVATAR);
+
+        // 压缩后格式可能变化（不带透明的大 PNG 会转 JPEG），扩展名必须跟着改，
+        // 否则 nginx 会按 .png 返回错误的 Content-Type
+        String finalExt = compressed.changed
+                ? compressed.extension.substring(1)
+                : ext;
+
+        // 6. 生成唯一文件名（去掉 UUID 连字符）
+        String filename = UUID.randomUUID().toString().replace("-", "") + "." + finalExt;
+
+        log.info("头像处理：原始 {} bytes → 上传 {} bytes，changed={}，尺寸={}x{}",
+                rawBytes.length, compressed.bytes.length, compressed.changed,
+                compressed.width, compressed.height);
+
+        // 7. 上传文件到OSS（未配 AccessKey 时自动降级写本地 uploads）
         String url;
-        try (InputStream in = file.getInputStream()) {
+        try (InputStream in = new ByteArrayInputStream(compressed.bytes)) {
             url = aliOssUtil.uploadFile(filename, in);
             log.debug("文件上传OSS成功，url={}", url);
         } catch (Exception e) {
