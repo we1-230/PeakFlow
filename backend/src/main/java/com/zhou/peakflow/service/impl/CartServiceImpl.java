@@ -4,6 +4,7 @@ import com.zhou.peakflow.constant.BusinessConstants;
 import com.zhou.peakflow.constant.CacheExpireConstants;
 import com.zhou.peakflow.enums.ProductShelfStatus;
 import com.zhou.peakflow.enums.ResultCode;
+import com.zhou.peakflow.enums.SeckillFlag;
 import com.zhou.peakflow.exception.BusinessException;
 import com.zhou.peakflow.pojo.Cart;
 import com.zhou.peakflow.pojo.Product;
@@ -83,14 +84,32 @@ public class CartServiceImpl implements CartService {
 
         Product product = requireOnShelfProduct(productId);
 
+        // 秒杀商品只能走秒杀通道下单（业务规则必须在服务端强制，不能只靠前端隐藏按钮，
+        // 否则任何直接调接口的客户端都能把秒杀商品塞进购物车）。
+        // 注意：必须在库存校验之前拦，否则秒杀商品 stock=0 会先命中「库存不足」，
+        // 给出「库存不足」这种误导性提示（2026-10-17 生产实测确认）。
+        if (SeckillFlag.YES.getCode().equals(product.getIsSeckill())) {
+            log.warn("{}拒绝加购秒杀商品 | userId={} | productId={}", LOG_PREFIX, userId, productId);
+            throw new BusinessException("秒杀商品仅支持秒杀通道购买，不可加入购物车");
+        }
+
         String cartKey = getCartKey(userId);
         Long totalQty = stringRedisTemplate.opsForHash()
                 .increment(cartKey, productId.toString(), quantity);
 
         // 库存不足：回滚本次增量
         if (product.getStock() != null && totalQty > product.getStock()) {
-            stringRedisTemplate.opsForHash()
-                    .increment(cartKey, productId.toString(), -quantity);
+            // 回滚必须区分「本次新增」与「累加失败」：
+            // 若该商品原本不在购物车里（totalQty - quantity <= 0），减回去会留下
+            // value=0 的幽灵字段 —— 它会出现在购物车列表里、并让角标计数虚增；
+            // 而列表的失效清理用的是 stock < quantity，对 0 不成立，永远清不掉。
+            // 所以这种情况要直接删除字段。
+            if (totalQty - quantity <= 0) {
+                stringRedisTemplate.opsForHash().delete(cartKey, productId.toString());
+            } else {
+                stringRedisTemplate.opsForHash()
+                        .increment(cartKey, productId.toString(), -quantity);
+            }
             throw new BusinessException(ResultCode.CART_STOCK_NOT_ENOUGH);
         }
 
@@ -219,7 +238,11 @@ public class CartServiceImpl implements CartService {
             Integer quantity = Integer.parseInt(entry.getValue().toString());
 
             Product product = productMap.get(productId);
-            if (product == null
+            // quantity <= 0 也要判失效：历史版本在「加购时库存不足」的回滚里会留下
+            // value=0 的字段，而 stock < quantity 对 0 不成立，这类幽灵条目永远清不掉
+            // （会让购物车出现 0 件条目、角标计数虚增）。这里顺手清掉。
+            if (quantity == null || quantity <= 0
+                    || product == null
                     || ProductShelfStatus.OFF_SHELF.getCode().equals(product.getStatus())
                     || product.getStock() == null
                     || product.getStock() < quantity) {
