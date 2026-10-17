@@ -133,6 +133,11 @@ export const handlers = [
     const quantity = Number(url.searchParams.get('quantity') || 1)
     const p = [...normalProducts, ...seckillProducts].find(x => x.id === productId)
     if (!p) return bizError('商品不存在')
+    // 与后端 CartServiceImpl#addToCart 一致：秒杀商品只能走秒杀通道下单，
+    // 加购在服务端就会被拒绝（前端隐藏按钮只是体验层，业务规则以后端为准）
+    if (Number(p.isSeckill) === 1) {
+      return bizError('秒杀商品仅支持秒杀通道购买，不可加入购物车')
+    }
     cartStore.push({
       productId, quantity, selected: 1,
       productName: p.name, price: p.seckillPrice ?? p.price,
