@@ -40,7 +40,21 @@
   绕过了图片专用的 `/uploads/`（30 天缓存）。已去掉；
   历史 `/api/uploads/...` 由新增兼容 location 继续支持，缓存升级为 30 天。
 
+- **头像上传走的是另一条链路，压缩从未生效**（2026-10-18）：
+  图片压缩只加在了 `POST /upload/image`（后台商品图），而**用户头像走
+  `POST /user/avatar` → `UserServiceImpl#changAvatar`**，那条路径仍是
+  「原始 InputStream 直接上传」。线上实测头像文件 1.33MB / 1.6MB 原样落盘。
+  已给 `changAvatar` 接入同一套压缩（实测 3.88MB → 51KB，省 98.7%）。
+  **教训：同一能力有多个入口时必须逐个确认接入。**
+- **头像上传上限 2MB → 5MB**（三处同步：Java 常量 / application.yml / 前端校验）。
+  服务端本就压到 400px，而手机原图普遍 3~8MB —— 卡 2MB 会让大量真实用户
+  在选图那一刻就被拒绝。拒绝提示也补了可行建议。
+
 ### 新增
+
+- `tools/fresh_device_check.py`：全新设备端到端体检（28 项 / 四角色）。
+  每页检查 JS 错误、破图、关键组件、横向溢出、登录态、三档耗时。
+- `UserServiceImplAvatarTest`（6 用例）：守住「头像压缩真的接进了上传链路」。
 
 - `tools/compress_uploads.py`：存量上传图片压缩脚本。默认 dry-run，`--apply` 才写，
   原图备份到 `<dir>-orig/`。**两条铁律**：保持原文件名（含扩展名，否则数据库 URL 404）、
