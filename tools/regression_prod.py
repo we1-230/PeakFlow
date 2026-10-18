@@ -288,24 +288,66 @@ import time as _t
 stamp = str(int(_t.time()))
 
 # D1. 商品运营：可新增/修改/删除商品（可逆，用例结束即删）
+#
+# ⚠️ 两个必须知道的接口事实（2026-10-18 修）：
+#   ① `POST /product/add` 返回 void，**data 里没有新商品 id**
+#      —— 早期写成 `new_pid = r['data']`，永远拿到 None，
+#      于是「修改」「删除」整段被 `if new_pid:` 跳过，商品**创建后从未被删掉**。
+#      线上因此累积了 6 条「回归临时商品<时间戳>」，且都是上架状态（见 ②）。
+#   ② `addProduct` 内部强制 `setStatus(ON_SHELF)`，不管 DTO 传什么；
+#      而 `deleteProduct` 拒绝删除上架商品（"商品已上架，请先下架再删除"）。
+#      所以**必须先下架再删**，否则删除一定失败。
+#
+# 现在的做法：创建后用 `keyword` 把商品按名称查回来拿 id，再「下架 → 删除」。
+# 名称本身有唯一约束，keyword 能精确定位，不会误伤别的商品。
+TEMP_NAME = '回归临时商品' + stamp
 st, r = call('POST', '/product/add', {
-    'name': '回归临时商品' + stamp, 'description': '回归用例自动创建',
+    'name': TEMP_NAME, 'description': '回归用例自动创建',
     'image': 'https://peakflow.top/uploads/products/placeholder-800.jpg', 'price': 1.0, 'stock': 10,
     'categoryId': 1, 'status': 0,
 }, token=tokens['productops'])
-new_pid = r.get('data') if isinstance(r.get('data'), int) else None
-record('角色写', 'productops 新增商品', biz(st, r) == 200, 'newId=%s' % new_pid)
+add_ok = biz(st, r) == 200
+
+# 接口不返回 id ⇒ 按名称回查（pageSize 给大一点，确保能搜到）
+new_pid = None
+if add_ok:
+    st2, r2 = call('POST', '/product/page',
+                   {'pageNum': 1, 'pageSize': 50, 'keyword': TEMP_NAME},
+                   token=tokens['productops'])
+    for _p in ((r2.get('data') or {}).get('list') or []):
+        if _p.get('name') == TEMP_NAME:
+            new_pid = _p.get('id')
+            break
+record('角色写', 'productops 新增商品', add_ok, 'newId=%s（按名称回查）' % new_pid)
+record('角色写', '新增的商品能按名称查到', new_pid is not None, '')
 
 if new_pid:
     st, r = call('PUT', '/product/update', {
-        'id': new_pid, 'name': '回归临时商品' + stamp + '-改', 'description': '已改',
+        'id': new_pid, 'name': TEMP_NAME + '-改', 'description': '已改',
         'image': 'https://peakflow.top/uploads/products/placeholder-800.jpg', 'price': 1.0, 'stock': 10,
         'categoryId': 1, 'status': 0,
     }, token=tokens['productops'])
     record('角色写', 'productops 修改商品', biz(st, r) == 200, '')
 
+    # 先下架（status=0），否则删除会被业务规则拒绝
+    st, r = call('PUT', '/product/update', {
+        'id': new_pid, 'name': TEMP_NAME + '-改', 'description': '已改',
+        'image': 'https://peakflow.top/uploads/products/placeholder-800.jpg', 'price': 1.0, 'stock': 10,
+        'categoryId': 1, 'status': 0,
+    }, token=tokens['productops'])
+    record('角色写', 'productops 下架商品（删除前置条件）', biz(st, r) == 200, '')
+
     st, r = call('DELETE', '/product/delete/' + str(new_pid), None, token=tokens['productops'])
-    record('角色写', 'productops 删除商品（清理）', biz(st, r) == 200, '')
+    record('角色写', 'productops 删除商品（清理）', biz(st, r) == 200,
+           'code=%s' % biz(st, r))
+
+    # 清理结果自检：删完再查一次，确认真的没了（避免"删了但还在"的假绿）
+    st, r = call('POST', '/product/page',
+                 {'pageNum': 1, 'pageSize': 50, 'keyword': TEMP_NAME}, token=tokens['productops'])
+    still = [x for x in ((r.get('data') or {}).get('list') or [])
+             if (x.get('name') or '').startswith(TEMP_NAME)]
+    record('角色写', '临时商品已从库中清除（无残留）', len(still) == 0,
+           '残留=%s' % [x.get('id') for x in still])
 
 # D2. 商品运营：不能碰订单/退款
 st, r = call('PUT', '/order/admin/update', {'id': order_id, 'status': 2,
