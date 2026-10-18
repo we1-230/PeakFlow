@@ -187,13 +187,37 @@ def login(page_path, account, password, is_admin=False):
     return data
 
 
-def check(role, path, must=(), must_sel=(), setup=None, extra_wait=6000):
-    """检查一个页面"""
+def wait_for(selector, timeout_ms=12000, step=800):
+    """轮询等待某选择器出现，返回是否等到。
+
+    为什么不能只靠固定 sleep：首页商品是异步加载的（loadingProducts + 接口往返），
+    在跨国链路上耗时波动很大。固定等 6 秒时快时慢，会造成「有时通过有时失败」的
+    假红 —— 实测超管登录后再回首页就踩到过（商品卡片还没渲染完）。
+    """
+    waited = 0
+    while waited < timeout_ms:
+        if js_num('(()=>document.querySelectorAll({}).length)()'.format(
+                json.dumps(selector))) > 0:
+            return True
+        ab('wait {}'.format(step))
+        waited += step
+    return False
+
+
+def check(role, path, must=(), must_sel=(), setup=None, extra_wait=6000,
+          wait_sel=''):
+    """检查一个页面
+
+    wait_sel: 该选择器出现后再开始断言（用于异步渲染的页面）
+    """
     print('  · {} {}'.format(role, path), flush=True)
     if setup:
         setup()
     ab('open "{}{}"'.format(BASE, path))
     ab('wait {}'.format(extra_wait))
+    if wait_sel:
+        if not wait_for(wait_sel):
+            print('    ⚠ 等待 {} 超时（继续按实际状态断言）'.format(wait_sel), flush=True)
 
     data = js(PROBE)
     errs = ab('errors').strip()
@@ -261,11 +285,14 @@ def guest_round():
     ab('eval "(()=>{localStorage.clear();sessionStorage.clear();if(window.caches)caches.keys().then(k=>k.forEach(x=>caches.delete(x)));return 1})()"')
 
     print('\n── A. 未登录（全新设备）──', flush=True)
-    check('guest', '/', must=['全智能秒杀商城', '购物车'], must_sel=['.product-card'])
-    check('guest', '/products', must=['商品'], must_sel=['.product-card'])
+    check('guest', '/', must=['全智能秒杀商城', '购物车'], must_sel=['.product-card'],
+          wait_sel='.product-card')
+    check('guest', '/products', must=['商品'], must_sel=['.product-card'],
+          wait_sel='.product-card')
     check('guest', '/product/38', must=['库存', '加入购物车'], must_sel=['.detail-card'])
     check('guest', '/product/5', must=['秒杀库存', '立即抢购'], must_sel=['.btn-seckill'])
-    check('guest', '/seckill', must=['秒杀'], must_sel=['.product-card'])
+    check('guest', '/seckill', must=['秒杀'], must_sel=['.product-card'],
+          wait_sel='.product-card')
     check('guest', '/login', must=['用户协议', '隐私政策'], must_sel=['.agreement-check'])
     check('guest', '/admin/login', must=['管理员账号'], must_sel=['input'])
     # 未登录直接访问需登录页，应被拦到登录
@@ -282,7 +309,8 @@ def user_round():
         return
     print('    ✓ 登录成功 -> {}'.format(d.get('url')), flush=True)
 
-    check('user', '/', must=['购物车'], must_sel=['.product-card'])
+    check('user', '/', must=['购物车'], must_sel=['.product-card'],
+          wait_sel='.product-card')
     # 购物车可能为空（新注册/未加购的用户），空态是正常分支：
     # 要么有商品（表格/条目/缩略图），要么显示空态文案。两者都没有才是缺陷。
     check('user', '/cart', must=['购物车'],
@@ -366,7 +394,7 @@ def register_round():
                     [] if logged else ['新注册账号无法登录']))
     if logged:
         check('new-user', '/user', must=['基本信息'], must_sel=['.el-avatar'])
-        check('new-user', '/', must=['购物车'])
+        check('new-user', '/', must=['购物车'], wait_sel='.product-card')
 
 
 def admin_round():
@@ -386,7 +414,8 @@ def admin_round():
     check('admin', '/admin/orders', must=['订单'], must_sel=['.el-table'])
     check('admin', '/admin/refunds', must=['退款'], must_sel=['.el-table'])
     # 超管回商城前台（此时是管理员身份，检查顶栏头像/昵称/后台入口）
-    check('admin', '/', must=['管理后台'], must_sel=['.product-card'])
+    check('admin', '/', must=['管理后台'], must_sel=['.product-card'],
+          wait_sel='.product-card')
 
 
 # ---------------------------------------------------------------------------
