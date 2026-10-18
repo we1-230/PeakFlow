@@ -173,7 +173,8 @@ const carouselSlides = [
     btn: '立即抢购',
     action: 'seckill',
     bg: 'linear-gradient(135deg, #C81E1E 0%, #E1251B 50%, #F04E3E 100%)',
-    img: 'https://images.unsplash.com/photo-1607082348824-0a96f2a4b9da?w=800&h=400&fit=crop&q=80',
+    // 本地化：图已下载到本机 /uploads/products/（1000x400 裁剪），不再跨域拉境外 CDN
+    img: '/uploads/products/banner-seckill-1000.jpg',
   },
   {
     title: '品质好物 全场包邮',
@@ -181,7 +182,7 @@ const carouselSlides = [
     btn: '逛逛全部分类',
     action: 'category',
     bg: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #2b1810 100%)',
-    img: 'https://images.unsplash.com/photo-1556742502-ec7c0e9f34b1?w=800&h=400&fit=crop&q=80',
+    img: '/uploads/products/banner-mall-1000.jpg',
   },
 ]
 
