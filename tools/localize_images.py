@@ -39,6 +39,9 @@
     # 5) 轮播图（前端硬编码，需按 1000x400 裁剪）
     python3 tools/localize_images.py --banners
 
+    # 6) 改了 400 档质量、要重压（不重新下载原图）
+    python3 tools/localize_images.py --repack
+
 ## 设计取舍
 
 · **下载成功才写 SQL**：任何一张失败都不生成它的 UPDATE，绝不出现「库里有 URL、盘上没文件」
@@ -63,7 +66,12 @@ urllib.request.install_opener(
 DEST_DIR = os.environ.get('DEST_DIR', '/var/lib/docker/volumes/peakflow_peakflow-uploads/_data/products')
 PUBLIC_BASE = os.environ.get('PUBLIC_BASE', 'https://peakflow.top/uploads/products')
 SIZES = (400, 800)
+# 分级质量（2026-10-18 实测后调整）：
+#   400 档用在 200~260px 的列表卡片上，q70 与 q82 肉眼无差别，体积省约 18%
+#   800 档是详情页主图，保持 q82
+#   1000 档轮播居中裁剪后展示，q78 够用
 QUALITY = 82
+QUALITY_BY_TIER = {400: 70, 800: 82, 1000: 78}
 # 轮播是 1200 宽的容器，单独一档
 BANNER_SIZE = 1000
 
@@ -156,7 +164,8 @@ def ensure_variants(raw, slug):
                 cur = im.resize((size, nh), Image.LANCZOS)
             else:
                 cur = im
-            cur.save(out, 'JPEG', quality=QUALITY, optimize=True, progressive=True)
+            q = QUALITY_BY_TIER.get(size, QUALITY)
+            cur.save(out, 'JPEG', quality=q, optimize=True, progressive=True)
             os.chmod(out, 0o644)
             made.append((size, os.path.getsize(out)))
 
@@ -192,14 +201,20 @@ def main():
     ap.add_argument('--download', action='store_true', help='下载并生成两档图')
     ap.add_argument('--sql-out', default='', help='把 UPDATE 语句写到该文件')
     ap.add_argument('--verify', action='store_true', help='校验库里 URL 是否都可访问')
+    ap.add_argument('--force', action='store_true',
+                    help='已存在的文件也重新生成（改了质量参数后用）')
     ap.add_argument('--banners', action='store_true',
                     help='只处理前端硬编码的轮播图（1000x400 裁剪）')
+    ap.add_argument('--repack', action='store_true',
+                    help='从已有 -800 重压 -400（改了 400 档质量时用，不重新下载）')
     args = ap.parse_args()
 
     if args.verify:
         return do_verify()
     if args.banners:
         return make_banners()
+    if args.repack:
+        return repack()
 
     rows = collect()
     print('待处理条目: {} 条'.format(len(rows)))
@@ -228,7 +243,7 @@ def main():
     for i, (slug, items) in enumerate(sorted(by_slug.items()), 1):
         target800 = os.path.join(DEST_DIR, '{}-800.jpg'.format(slug))
         # 幂等：已有且大小合理就跳过下载
-        if os.path.exists(target800) and os.path.getsize(target800) > 1024:
+        if (not args.force) and os.path.exists(target800) and os.path.getsize(target800) > 1024:
             skipped += 1
             ok += 1
         else:
@@ -309,7 +324,7 @@ def make_banners():
                 im = im.crop((0, top, sw, top + nh))
             im = im.resize((BANNER_W, BANNER_H), Image.LANCZOS)
             out = os.path.join(DEST_DIR, '{}-1000.jpg'.format(name))
-            im.save(out, 'JPEG', quality=QUALITY, optimize=True, progressive=True)
+            im.save(out, 'JPEG', quality=QUALITY_BY_TIER[1000], optimize=True, progressive=True)
             os.chmod(out, 0o644)
             print('  ✓ {} {:.0f}KB {}x{}'.format(
                 os.path.basename(out), os.path.getsize(out) / 1024, BANNER_W, BANNER_H))
@@ -320,6 +335,50 @@ def make_banners():
             os.chown(os.path.join(DEST_DIR, f), 1001, 1001)
     except (AttributeError, PermissionError):
         pass
+    return 0
+
+
+def repack():
+    """从已有的 -800.jpg 重压 -400.jpg（改了 400 档质量后不必重新下载原图）。
+
+    为什么可以这样做：800 档是 q82 的高质量图，缩到 400 是 4 倍降采样，
+    再以 q70 重编码，视觉损失远小于"从小图放大"；而省下的是重新下载 95 张原图的时间。
+
+    只重压 400 档 —— 800 / 1000 是详情与轮播用的，质量不动。
+    """
+    from PIL import Image
+
+    if not os.path.isdir(DEST_DIR):
+        print('目录不存在:', DEST_DIR, file=sys.stderr)
+        return 2
+
+    names = [f for f in sorted(os.listdir(DEST_DIR)) if f.endswith('-800.jpg')]
+    before = after = 0
+    q = QUALITY_BY_TIER[400]
+    for f in names:
+        src = os.path.join(DEST_DIR, f)
+        dst = os.path.join(DEST_DIR, f.replace('-800.jpg', '-400.jpg'))
+        old = os.path.getsize(dst) if os.path.exists(dst) else 0
+        before += old
+        with Image.open(src) as im:
+            im = im.convert('RGB')
+            w, h = im.size
+            if w > 400:
+                im = im.resize((400, max(1, round(h * 400 / w))), Image.LANCZOS)
+            im.save(dst, 'JPEG', quality=q, optimize=True, progressive=True)
+            os.chmod(dst, 0o644)
+        after += os.path.getsize(dst)
+
+    try:
+        os.chown(DEST_DIR, 1001, 1001)
+        for f in os.listdir(DEST_DIR):
+            os.chown(os.path.join(DEST_DIR, f), 1001, 1001)
+    except (AttributeError, PermissionError):
+        pass
+
+    print('重压 {} 个 400 档：{:.1f}MB → {:.1f}MB（省 {:.0f}%，q={}）'.format(
+        len(names), before / 1048576, after / 1048576,
+        (1 - after / before) * 100 if before else 0, q))
     return 0
 
 

@@ -21,6 +21,7 @@
             :src="resolveImage(slide.img, IMG_SIZE.banner)"
             class="carousel-img"
             :alt="slide.title"
+            fetchpriority="high"
             decoding="async"
             @error="$event.target.style.display='none'"
           />
@@ -51,17 +52,19 @@
         </div>
         <div class="seckill-scroll">
           <div
-            v-for="p in seckillProducts"
+            v-for="(p, si) in seckillProducts"
             :key="p.id"
             class="product-card seckill-card"
             @click="goProduct(p.id)"
           >
             <div class="img-wrap">
+              <!-- 前 6 个在首屏可见范围内，给高优先级；其余保持 lazy -->
               <img
                 v-if="p.image"
                 :src="resolveImage(p.image, IMG_SIZE.thumb)"
                 :alt="p.name"
-                loading="lazy"
+                :loading="si < 6 ? 'eager' : 'lazy'"
+                :fetchpriority="si < 6 ? 'high' : 'auto'"
                 decoding="async"
                 @error="p.image = ''"
               />
@@ -87,17 +90,20 @@
         <el-skeleton v-if="loadingProducts" :rows="3" animated class="grid-skeleton" />
         <div v-else class="product-grid">
           <div
-            v-for="p in products"
+            v-for="(p, gi) in products"
             :key="p.id"
             class="product-card"
             @click="goProduct(p.id)"
           >
             <div class="img-wrap">
+              <!-- 前 8 个（1366 屏约两行）优先加载，让用户尽快看到内容；
+                   其余 lazy，滚动到附近才请求。 -->
               <img
                 v-if="p.image"
                 :src="resolveImage(p.image, IMG_SIZE.thumb)"
                 :alt="p.name"
-                loading="lazy"
+                :loading="gi < 8 ? 'eager' : 'lazy'"
+                :fetchpriority="gi < 8 ? 'high' : 'auto'"
                 decoding="async"
                 @error="p.image = ''"
               />
