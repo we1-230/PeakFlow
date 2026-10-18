@@ -290,7 +290,7 @@ stamp = str(int(_t.time()))
 # D1. 商品运营：可新增/修改/删除商品（可逆，用例结束即删）
 st, r = call('POST', '/product/add', {
     'name': '回归临时商品' + stamp, 'description': '回归用例自动创建',
-    'image': 'https://peakflow.top/favicon.ico', 'price': 1.0, 'stock': 10,
+    'image': 'https://peakflow.top/uploads/products/placeholder-800.jpg', 'price': 1.0, 'stock': 10,
     'categoryId': 1, 'status': 0,
 }, token=tokens['productops'])
 new_pid = r.get('data') if isinstance(r.get('data'), int) else None
@@ -299,7 +299,7 @@ record('角色写', 'productops 新增商品', biz(st, r) == 200, 'newId=%s' % n
 if new_pid:
     st, r = call('PUT', '/product/update', {
         'id': new_pid, 'name': '回归临时商品' + stamp + '-改', 'description': '已改',
-        'image': 'https://peakflow.top/favicon.ico', 'price': 1.0, 'stock': 10,
+        'image': 'https://peakflow.top/uploads/products/placeholder-800.jpg', 'price': 1.0, 'stock': 10,
         'categoryId': 1, 'status': 0,
     }, token=tokens['productops'])
     record('角色写', 'productops 修改商品', biz(st, r) == 200, '')
@@ -319,13 +319,13 @@ record('角色写', 'productops 越权审核退款被拒', biz(st, r) in (403, 4
 # D3. 订单客服：不能创建商品/分类
 st, r = call('POST', '/product/add', {
     'name': '越权测试商品' + stamp, 'description': '权限用例',
-    'image': 'https://peakflow.top/favicon.ico', 'price': 1.0, 'stock': 1,
+    'image': 'https://peakflow.top/uploads/products/placeholder-800.jpg', 'price': 1.0, 'stock': 1,
     'categoryId': 1, 'status': 0,
 }, token=tokens['ordersvc'])
 record('角色写', 'ordersvc 越权新增商品被拒', biz(st, r) in (403, 401), 'code=%s' % biz(st, r))
 
 st, r = call('POST', '/category/add', {
-    'name': '越权测试分类' + stamp, 'icon': 'https://peakflow.top/favicon.ico',
+    'name': '越权测试分类' + stamp, 'icon': 'https://peakflow.top/uploads/products/placeholder-400.jpg',
     'sort': 99, 'status': 1,
 }, token=tokens['ordersvc'])
 record('角色写', 'ordersvc 越权新增分类被拒', biz(st, r) in (403, 401), 'code=%s' % biz(st, r))
