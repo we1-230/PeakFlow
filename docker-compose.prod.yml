@@ -1,0 +1,75 @@
+# ============================================================================
+# 生产环境覆盖文件（配合主文件使用，不单独存在）
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# 只做三件主文件没做的事：
+#   1. 后端切 prod profile，连 peakflow_prod 库 + Redis db2
+#   2. 每个容器设内存上限与日志上限（小内存机器防 OOM、防日志写满磁盘）
+#   3. JVM 堆按实例分档：主实例吃大头，副实例够用就行
+#
+# 全栈内存预算约 3G，适合 4 核 4G 的机器。
+# 若是 2G 内存：把主文件的 backend2 整段删掉，并把 frontend/nginx.conf
+# 里 upstream 的 backend2 那行去掉，然后重新构建 nginx 镜像。
+# ============================================================================
+
+name: peakflow
+
+x-log: &log
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+
+  mysql:
+    mem_limit: 600m
+    logging: *log
+
+  redis:
+    mem_limit: 120m
+    logging: *log
+
+  namesrv:
+    mem_limit: 300m
+    logging: *log
+
+  broker:
+    mem_limit: 600m
+    logging: *log
+
+  # 主实例：承接全部流量，堆给足
+  backend1:
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      DB_NAME: peakflow_prod
+      DB_USE_SSL: "false"
+      REDIS_DATABASE: "2"
+      JAVA_OPTS: >-
+        -Xms256m -Xmx512m
+        -XX:+UseSerialGC
+        -XX:+ExitOnOutOfMemoryError
+        -Dfile.encoding=UTF-8
+        -Duser.timezone=Asia/Shanghai
+    mem_limit: 800m
+    logging: *log
+
+  # 副实例：只做负载均衡的第二个落点，堆压小
+  backend2:
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      DB_NAME: peakflow_prod
+      DB_USE_SSL: "false"
+      REDIS_DATABASE: "2"
+      JAVA_OPTS: >-
+        -Xms160m -Xmx288m
+        -XX:+UseSerialGC
+        -XX:+ExitOnOutOfMemoryError
+        -Dfile.encoding=UTF-8
+        -Duser.timezone=Asia/Shanghai
+    mem_limit: 550m
+    logging: *log
+
+  nginx:
+    mem_limit: 50m
+    logging: *log
