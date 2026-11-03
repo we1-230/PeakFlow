@@ -12,4 +12,6 @@ RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 WORKDIR /app
 COPY --from=build /build/target/*.jar app.jar
 EXPOSE 8080
-ENTRYPOINT ["java", "-Xmx512m", "-jar", "app.jar"]
+# 堆大小交给 JAVA_OPTS 控制：本地默认 512m，生产覆盖文件里按机器内存调小
+ENV JAVA_OPTS="-Xmx512m"
+ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar app.jar"]
