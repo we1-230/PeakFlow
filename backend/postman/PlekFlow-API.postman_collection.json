@@ -1,0 +1,483 @@
+{
+  "info": {
+    "name": "PlekFlow-API",
+    "description": "PeakFlow 秒杀商城 · 接口测试集合\n\n01-认证：登录并提取 token（集合级 Authorization 使用 {{token}}）\n02-支付链路：下单 → 发起支付 → 模拟第三方支付回调 → 查支付单 → 查订单\n\n设计要点：\n1. 变量传递：token / orderId / outTradeNo 由脚本自动写入环境变量，不手工复制\n2. 断言三层：HTTP 状态码 → 业务码 → 业务状态（订单是否真的变成已付款）\n3. 签名自动化：模拟支付用 Pre-request Script 计算 HmacSHA256，不依赖手工点收银台\n\n运行：Runner → Run collection → Iterations=1 → 环境选 dev",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "01-认证",
+      "item": [
+        {
+          "name": "登录",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "",
+                  "const body = pm.response.json();",
+                  "pm.test(\"业务码 200 登录成功\", () => pm.expect(body.code).to.eql(200));",
+                  "",
+                  "// 提取 token 写入环境变量，后续所有请求用 {{token}} 引用",
+                  "pm.environment.set(\"token\", body.data.token);",
+                  "pm.test(\"已提取 token\", () => pm.expect(pm.environment.get(\"token\")).to.be.a(\"string\").and.not.empty);"
+                ]
+              }
+            }
+          ],
+          "response": [],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"account\": \"pfadmin\",\n  \"password\": \"Admin123456\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "02-支付链路",
+      "item": [
+        {
+          "name": "下单",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// 数量用「秒级时间戳」派生（1~10，后端上限 10）。",
+                  "// 原因：后端有防重复提交锁，Redis key = hash(userId + 商品ID×数量)，TTL 10 秒。",
+                  "// 相邻两次运行的秒数必然不同 → 锁 key 必然不同 → 可以连续重复执行而不被判「重复提交」。",
+                  "const qty = (Math.floor(Date.now() / 1000) % 10) + 1;",
+                  "pm.environment.set(\"orderQty\", qty);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "",
+                  "const body = pm.response.json();",
+                  "pm.test(\"业务码 200 下单成功\", () => pm.expect(body.code).to.eql(200));",
+                  "pm.test(\"订单是待付款状态\", () => pm.expect(body.data.status).to.eql(0));",
+                  "",
+                  "pm.environment.set(\"orderId\", body.data.id);",
+                  "pm.test(\"已提取 orderId\", () => pm.expect(pm.environment.get(\"orderId\")).to.be.above(0));"
+                ]
+              }
+            }
+          ],
+          "response": [],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/order/create",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "order",
+                "create"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"addressId\": {{addressId}},\n  \"items\": [\n    { \"productId\": {{productId}}, \"quantity\": {{orderQty}} }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "发起支付",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "",
+                  "const body = pm.response.json();",
+                  "pm.test(\"业务码 200 发起支付成功\", () => pm.expect(body.code).to.eql(200));",
+                  "",
+                  "const pay = body.data;",
+                  "pm.test(\"拿到了支付单号\", () => pm.expect(pay.outTradeNo).to.be.a(\"string\").and.not.empty);",
+                  "pm.environment.set(\"outTradeNo\", pay.outTradeNo);",
+                  "",
+                  "// 从原始文本提取金额，避免 299.00 被 JS 变成 299 导致签名对不上",
+                  "const m = pm.response.text().match(/\"amount\"\\s*:\\s*([0-9.]+)/);",
+                  "pm.environment.set(\"amount\", m ? m[1] : \"\");",
+                  "pm.test(\"已提取金额\", () => pm.expect(pm.environment.get(\"amount\")).to.not.be.empty);"
+                ]
+              }
+            }
+          ],
+          "response": [],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/pay/prepay",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "pay",
+                "prepay"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orderId\": {{orderId}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "模拟支付（回调入账）",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// 按后端规则算签名：参数名 ASCII 升序 → k=v 用 & 连接 → HmacSHA256(密钥) → Base64",
+                  "const secret     = pm.environment.get(\"paySecret\");",
+                  "const outTradeNo = pm.environment.get(\"outTradeNo\");",
+                  "const amount     = pm.environment.get(\"amount\");",
+                  "const timestamp  = String(Date.now());",
+                  "",
+                  "const params = { amount: amount, out_trade_no: outTradeNo, timestamp: timestamp };",
+                  "const content = Object.keys(params).sort().map(k => k + \"=\" + params[k]).join(\"&\");",
+                  "const sign = CryptoJS.HmacSHA256(content, secret).toString(CryptoJS.enc.Base64);",
+                  "",
+                  "pm.environment.set(\"payTimestamp\", timestamp);",
+                  "pm.environment.set(\"paySign\", sign);",
+                  "console.log(\"待签串: \" + content);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "",
+                  "const body = pm.response.json();",
+                  "pm.test(\"第三方受理付款成功\", () => pm.expect(body.success).to.eql(true));"
+                ]
+              }
+            }
+          ],
+          "response": [],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/mock-pay/pay",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "mock-pay",
+                "pay"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"out_trade_no\": \"{{outTradeNo}}\",\n  \"amount\": \"{{amount}}\",\n  \"timestamp\": \"{{payTimestamp}}\",\n  \"sign\": \"{{paySign}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "查支付单",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "",
+                  "const body = pm.response.json();",
+                  "pm.test(\"业务码 200\", () => pm.expect(body.code).to.eql(200));",
+                  "pm.test(\"支付单状态 = 支付成功\", () => pm.expect(body.data.status).to.eql(1));",
+                  "pm.test(\"回调已到达并留档\", () => pm.expect(body.data.notifyTime).to.not.be.null);"
+                ]
+              }
+            }
+          ],
+          "response": [],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/pay/query/{{outTradeNo}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "pay",
+                "query",
+                "{{outTradeNo}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "查订单",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "",
+                  "const body = pm.response.json();",
+                  "pm.test(\"业务码 200\", () => pm.expect(body.code).to.eql(200));",
+                  "pm.test(\"订单状态 = 已付款\", () => pm.expect(body.data.status).to.eql(1));",
+                  "pm.test(\"付款时间已写入\", () => pm.expect(body.data.payTime).to.not.be.null);"
+                ]
+              }
+            }
+          ],
+          "response": [],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/order/detail/{{orderId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "order",
+                "detail",
+                "{{orderId}}"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "03-秒杀链路",
+      "item": [
+        {
+          "name": "秒杀下单",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "",
+                  "const body = pm.response.json();",
+                  "pm.test(\"业务码 200 抢购请求已受理\", () => pm.expect(body.code).to.eql(200));",
+                  "",
+                  "const requestId = body.data;",
+                  "pm.test(\"拿到了 requestId（异步结果凭证）\", () => pm.expect(requestId).to.be.a(\"string\").and.not.empty);",
+                  "",
+                  "pm.environment.set(\"seckillRequestId\", requestId);",
+                  "pm.environment.set(\"seckillPollCount\", 0);"
+                ]
+              }
+            }
+          ],
+          "response": [],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/seckill/order",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "seckill",
+                "order"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"productId\": {{seckillProductId}},\n  \"addressId\": {{addressId}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "查秒杀结果",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "",
+                  "const body = pm.response.json();",
+                  "// 注意：不能用 data 当变量名 —— Postman 脚本环境里 data 是内置的迭代数据全局变量",
+                  "const r = body.data || {};",
+                  "let count = Number(pm.environment.get(\"seckillPollCount\") || 0) + 1;",
+                  "pm.environment.set(\"seckillPollCount\", count);",
+                  "",
+                  "if (r.status === 1) {",
+                  "    pm.test(\"秒杀最终成功（异步落库完成）\", () => pm.expect(r.status).to.eql(1));",
+                  "    pm.test(\"拿到了秒杀订单 id\", () => pm.expect(r.orderId).to.be.above(0));",
+                  "    pm.environment.set(\"seckillOrderId\", r.orderId);",
+                  "    pm.environment.set(\"seckillPollCount\", 0);",
+                  "} else if (count < 20) {",
+                  "    // 扣库存 → 发 MQ → 消费者落库是异步的，结果没出来就重跑本请求（最多 20 次）",
+                  "    postman.setNextRequest(\"查秒杀结果\");",
+                  "} else {",
+                  "    pm.test(\"轮询 \" + count + \" 次仍未成功\", () => pm.expect(r.status).to.eql(1));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "response": [],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/seckill/result/{{seckillRequestId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "seckill",
+                "result",
+                "{{seckillRequestId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "取消秒杀订单（释放门闩）",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+                  "",
+                  "const body = pm.response.json();",
+                  "pm.test(\"业务码 200 取消成功\", () => pm.expect(body.code).to.eql(200));",
+                  "",
+                  "// 取消会回补库存并释放「一人一单」门闩（Redis 24 小时），",
+                  "// 所以这一步是整条秒杀链路能重复执行的关键：不清掉门闩，第二次跑的第一枪就会被拒"
+                ]
+              }
+            }
+          ],
+          "response": [],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/order/cancel/{{seckillOrderId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "order",
+                "cancel",
+                "{{seckillOrderId}}"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

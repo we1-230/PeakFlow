@@ -1,0 +1,39 @@
+# ============================================================================
+# 后端镜像构建忽略清单（对应 backend/Dockerfile 的构建上下文 = backend/）
+# 目的：缩小构建上下文、避免把本地产物和机密带进镜像
+# ============================================================================
+
+# 构建产物与本地状态（进镜像只会拖慢构建且可能带入旧字节码）
+target/
+logs/
+.mvn/wrapper/maven-wrapper.jar
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.settings/
+.classpath
+.project
+nbproject/
+
+# 版本控制
+.git/
+.gitignore
+.gitattributes
+
+# 本地环境变量（绝不允许进镜像）
+.env
+.env.*
+!.env.example
+
+# 测试与接口调试资产：运行阶段用不到
+src/test/
+postman/
+*.http
+
+# 系统文件
+.DS_Store
+Thumbs.db

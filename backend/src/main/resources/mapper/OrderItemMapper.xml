@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.zhou.peakflow.mapper.OrderItemMapper">
+
+    <insert id="batchInsert">
+        INSERT INTO order_item (order_id, product_id, product_name, product_image,
+        product_price, quantity, subtotal, create_time)
+        VALUES
+        <foreach collection="list" item="item" separator=",">
+            (#{item.orderId}, #{item.productId}, #{item.productName}, #{item.productImage},
+            #{item.productPrice}, #{item.quantity}, #{item.subtotal}, NOW())
+        </foreach>
+    </insert>
+
+    <select id="selectByOrderIds" resultType="com.zhou.peakflow.pojo.OrderItem">
+        SELECT * FROM order_item
+        WHERE order_id IN
+        <foreach collection="orderIds" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </select>
+
+</mapper>

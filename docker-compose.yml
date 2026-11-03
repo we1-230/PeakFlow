@@ -1,0 +1,142 @@
+name: peakflow
+
+networks:
+  peakflow-net:
+    driver: bridge
+
+volumes:
+  mysql-data:
+  redis-data:
+  peakflow-uploads: # 多后端共享上传文件，解决A上传B访问404
+  namesrv-data:
+  broker-data:
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: peakflow-mysql
+    restart: unless-stopped
+    command:
+      - --character-set-server=utf8mb4
+      - --lower_case_table_names=1
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:?请在.env配置密码}
+      MYSQL_DATABASE: peakflow_dev
+      TZ: Asia/Shanghai
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./deploy/mysql/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p${DB_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks: [peakflow-net]
+
+  redis:
+    image: redis:7-alpine
+    container_name: peakflow-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    environment:
+      TZ: Asia/Shanghai
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 8
+    networks: [peakflow-net]
+
+  # RocketMQ NameServer
+  namesrv:
+    image: apache/rocketmq:4.9.7
+    container_name: peakflow-namesrv
+    restart: unless-stopped
+    command: sh mqnamesrv
+    volumes:
+      - namesrv-data:/root/logs
+    networks: [peakflow-net]
+
+  # RocketMQ Broker
+  broker:
+    image: apache/rocketmq:4.9.7
+    container_name: peakflow-broker
+    restart: unless-stopped
+    command: >
+      sh mqbroker
+      -c /home/rocketmq/rocketmq-4.9.6/conf/broker.conf
+      --autoCreateTopicEnable true
+    environment:
+      NAMESRV_ADDR: "namesrv:9876"
+    volumes:
+      - broker-data:/root/logs
+    depends_on:
+      - namesrv
+    networks: [peakflow-net]
+
+  backend1:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: peakflow-backend:latest
+    container_name: peakflow-backend1
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      SNOWFLAKE_WORKER_ID: "1"
+    volumes:
+      - ./backend/logs/backend1:/app/logs
+      - peakflow-uploads:/app/uploads
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      namesrv:
+        condition: service_started
+      broker:
+        condition: service_started
+    networks: [peakflow-net]
+
+  backend2:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: peakflow-backend:latest
+    container_name: peakflow-backend2
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      SNOWFLAKE_WORKER_ID: "2"
+    volumes:
+      - ./backend/logs/backend2:/app/logs
+      - peakflow-uploads:/app/uploads
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      namesrv:
+        condition: service_started
+      broker:
+        condition: service_started
+    networks: [peakflow-net]
+
+  nginx:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: peakflow-nginx:latest
+    container_name: peakflow-nginx
+    restart: unless-stopped
+    ports:
+      - "${NGINX_PORT:-80}:80"
+    environment:
+      TZ: Asia/Shanghai
+    depends_on:
+      - backend1
+      - backend2
+    networks: [peakflow-net]

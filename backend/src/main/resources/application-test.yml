@@ -1,0 +1,72 @@
+# ===================== 测试环境（test）=====================
+# 数据库：peakflow_test（测试库）  Redis：同实例 db1
+#
+# 端口说明：与 dev 一致，跟随 docker compose 的中间件端口（MySQL 3307 / Redis 6380），
+# 由环境变量 DB_PORT / REDIS_PORT 覆盖；集成测试直接连本机 compose 栈。
+spring:
+  #redis配置（同一 Redis 实例，测试环境独立逻辑库 db1）
+  redis:
+    host: ${REDIS_HOST:127.0.0.1}
+    port: ${REDIS_PORT:6380}
+    database: ${REDIS_DATABASE:1}
+    # 与 dev 同口径：必须显式配超时，否则退回 Lettuce 默认的 60 秒
+    # （stringRedisTemplate 是同步 API，会阻塞线程；Redis 挂掉会把整个应用拖死）
+    timeout: 2000ms
+    connect-timeout: 1000ms
+    lettuce:
+      pool:
+        max-active: 100
+        max-idle: 50
+        min-idle: 20
+        max-wait: 3000ms
+      shutdown-timeout: 100ms
+
+  #数据库（凭证优先走环境变量；test profile 给本地兜底默认值，保证集成测试在任何机器上能一键跑）
+  #
+  # 为什么 dev / prod 不给默认值，只有 test 给：
+  #   · prod 绝不能连错库，所以 ${DB_HOST:} 之类一律留空，忘配就启动失败（fail-fast）
+  #   · dev 由 IDE 运行配置注入，不依赖这里
+  #   · test 是集成测试专用，指向本机 docker 的测试库（peakflow_test），密码与
+  #     docker-compose.yml 里 MYSQL_ROOT_PASSWORD 一致，属于「测试夹具」而非生产凭证
+  #   环境变量优先级高于 yml 默认值，所以 CI 上仍然可以用真实变量覆盖。
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://${DB_HOST:127.0.0.1}:${DB_PORT:3307}/${DB_NAME:peakflow_test}?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:1234}
+    hikari:
+      maximum-pool-size: 50
+      minimum-idle: 10
+      connection-timeout: 3000
+      idle-timeout: 600000 # 10分钟空闲连接销毁
+      max-lifetime: 1800000
+      validation-timeout: 2000
+      leak-detection-threshold: 5000
+
+# 日志：测试环境独立目录 ./logs/test
+logging:
+  file:
+    path: ${LOG_PATH:./logs/test}
+  level:
+    root: ${LOG_LEVEL_ROOT:INFO}
+    com.zhou.peakflow: ${LOG_LEVEL_APP:INFO}
+
+# ==================== 测试专用密钥兜底 ====================
+# 生产（prod）对这两项一律不给默认值，忘配就启动失败；
+# 测试环境给固定值，目的是「clone 下来就能跑集成测试」，不需要任何人先配环境变量。
+# 环境变量优先级更高，CI 上可用真实值覆盖。
+#
+# JWT 密钥长度必须 >= 32 字节（HS256 要求 256 bit），否则 JJWT 抛 WeakKeyException。
+jwt:
+  secret: ${JWT_SECRET:peakflow-integration-test-jwt-secret-key-2026}
+mock-pay:
+  secret-key: ${MOCK_PAY_SECRET:peakflow-integration-test-mock-pay-secret-2026}
+
+
+rocketmq:
+  name-server: ${ROCKETMQ_NAMESRV_ADDR:127.0.0.1:9876}
+  producer:
+    group: ${ROCKETMQ_PRODUCER_GROUP:my-producer-group}
+  consumer:
+    consume-thread-min: 20
+    consume-thread-max: 50
