@@ -15,6 +15,12 @@ export default defineConfig({
         target: 'http://localhost:8080',
         changeOrigin: true,
         rewrite: p => p.replace(/^\/api/, '')
+      },
+      // 用户上传的图片（头像/商品图）：后端返回相对路径 /uploads/<uuid>.jpg，
+      // dev 下 vite 必须自己转发，否则会 404 —— 与生产 nginx 的 /uploads/ 反代保持一致。
+      '/uploads': {
+        target: 'http://localhost:8080',
+        changeOrigin: true
       }
     }
   },

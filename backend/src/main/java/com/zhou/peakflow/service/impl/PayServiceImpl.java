@@ -232,7 +232,7 @@ public class PayServiceImpl implements PayService {
         signParams.put("timestamp", timestamp);
         String sign = PaySignUtil.sign(signParams, mockPayProperties.getSecretKey());
 
-        String cashierUrl = mockPayProperties.getCashierUrl()
+        String cashierUrl = normalizeBase(mockPayProperties.getCashierUrl())
                 + "?out_trade_no=" + urlEncode(record.getOutTradeNo())
                 + "&amount=" + urlEncode(record.getAmount().toPlainString())
                 + "&timestamp=" + timestamp
@@ -261,6 +261,24 @@ public class PayServiceImpl implements PayService {
     /** URL 编码（参数值里可能含 + / = 等特殊字符，不编码会导致收银台取参错误） */
     private String urlEncode(String value) {
         return URLEncoder.encode(value, StandardCharsets.UTF_8);
+    }
+
+    /**
+     * 去掉收银台地址末尾的斜杠。
+     *
+     * 配置里多写一个尾斜杠（/api/mock-pay/cashier/）会拼出 "...cashier//?out_trade_no=..."
+     * 这种畸形地址，部分环境/网关会 404 或把 // 归一化成别的路径。
+     * 这里统一削掉，避免排障时被这种低级问题浪费半天。
+     */
+    private String normalizeBase(String base) {
+        if (base == null || base.isEmpty()) {
+            return "";
+        }
+        String result = base.trim();
+        while (result.endsWith("/")) {
+            result = result.substring(0, result.length() - 1);
+        }
+        return result;
     }
 
     /** 截断字符串，避免回调原文超长导致入库失败 */
