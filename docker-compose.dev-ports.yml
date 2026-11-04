@@ -1,0 +1,97 @@
+# ============================================================================
+# 端口暴露叠加件 —— 单独负责「把容器端口开到宿主机」
+# ----------------------------------------------------------------------------
+# 用法：必须和 dev 主文件叠加（compose 不允许单独用它启动）：
+#
+#   docker compose -f docker-compose.dev.yml -f docker-compose.dev-ports.yml up -d
+#
+#   # 后端在 IDEA 里跑之前，先确认中间件通了：
+#   docker compose -f docker-compose.dev.yml -f docker-compose.dev-ports.yml ps
+#
+#   # 只想关掉端口暴露、保留容器（比如你临时不想让 Navicat 连）：
+#   docker compose -f docker-compose.dev.yml -f docker-compose.dev-ports.yml down
+#   docker compose -f docker-compose.dev.yml up -d
+#
+# ----------------------------------------------------------------------------
+# 【为什么要拆成独立文件，而不是直接写在 dev 主文件里】
+#
+#   1. 「暴露到宿主机」是一个安全决定，不应该被默认打开。
+#      写成独立文件后，每次开端口都是一次显式选择，review 时也一眼能看见
+#      到底有哪些端口对着外面。
+#   2. 有些场景你只想跑容器、不想开端口（例如 CI 里跑集成测试、
+#      或者在服务器上只想跑个 MySQL 做数据迁移），
+#      此时只用主文件，宿主机上干干净净，一个端口都没多。
+#   3. 端口号集中在一个文件里，改端口不用翻几百行 compose。
+#
+# ----------------------------------------------------------------------------
+# 【为什么全部绑 127.0.0.1 而不是 0.0.0.0】
+#
+#   写成 "127.0.0.1:3307:3306" 时，只有这台机器自己能连（Navicat / DataGrip /
+#   IDEA / redis-cli 都在本机，够用）。
+#   如果写成 "3307:3306"（等价于 0.0.0.0），同一个 Wi-Fi 下的任何人都能连你的
+#   开发库 —— 开发库通常没开密码复杂度限制，这是很多人在咖啡馆被薅的原因。
+#   Docker Desktop for Windows/Mac 上 127.0.0.1 绑定是正常工作的。
+#
+# ----------------------------------------------------------------------------
+# 【端口规划（和 .env 里的宿主机视角保持一致，单一数据源）】
+#
+#   MySQL      宿主 3307  →  容器 3306     .env: DB_PORT=3307
+#   Redis      宿主 6380  →  容器 6379     .env: REDIS_PORT=6380
+#   NameServer 宿主 9876  →  容器 9876     .env: ROCKETMQ_NAMESRV_ADDR=127.0.0.1:9876
+#   Broker     宿主 10909 / 10911 / 10912  （客户端从 namesrv 拿到这个地址来投递/消费）
+#
+#   为什么 MySQL 用 3307 而不是 3306：
+#   你本机 3306 通常已经被一个单独安装的 MySQL 占了（本项目实测就是如此），
+#   用 3307 让「容器里的库」和「本机装的库」可以共存，互不干扰。
+#
+# ----------------------------------------------------------------------------
+# 【宿主机客户端的连接信息（直接抄）】
+#
+#   MySQL · Navicat / DataGrip / IDEA Database
+#     主机 127.0.0.1   端口 3307   用户 root
+#     密码 .env 里的 DB_PASSWORD（没填就是 peakflow_dev_2026）
+#     库   peakflow_dev / peakflow_test / peakflow_prod
+#     连接串 jdbc:mysql://127.0.0.1:3307/peakflow_dev?useSSL=false&serverTimezone=Asia/Shanghai
+#
+#   Redis · Redis Insight / Another Redis Desktop
+#     主机 127.0.0.1   端口 6380   无密码
+#     连接串 redis://127.0.0.1:6380/0
+#
+#   RocketMQ · 命令行验证（后端在 IDEA 里跑时）
+#     sh mqadmin clusterList -n 127.0.0.1:9876
+#
+#   连通性自检（不装任何客户端也能验）：
+#     # MySQL
+#     docker exec -it pfdev-mysql mysql -uroot -p -e "select 1"
+#     # Redis
+#     docker exec -it pfdev-redis redis-cli ping
+#     # 从宿主机侧确认端口真的开了（PowerShell）
+#     Test-NetConnection 127.0.0.1 -Port 3307
+# ============================================================================
+
+services:
+
+  mysql:
+    ports:
+      # 想换端口不用改文件：在 .env 里改 DB_PORT 即可
+      - "127.0.0.1:${DB_PORT:-3307}:3306"
+
+  redis:
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6380}:6379"
+
+  namesrv:
+    ports:
+      - "127.0.0.1:${ROCKETMQ_NS_PORT:-9876}:9876"
+
+  broker:
+    ports:
+      # 10909 主端口 / 10911 监听端口 / 10912 HA
+      - "127.0.0.1:10909:10909"
+      - "127.0.0.1:10911:10911"
+      - "127.0.0.1:10912:10912"
+    volumes:
+      # 关键：默认 broker.conf 会把「容器内网 IP」注册到 nameserver，
+      # 你的 IDEA 在宿主机拿到 172.x.x.x 是连不上的，producer 一发消息就超时。
+      # 这份 dev 配置把 brokerIP1 固定成 127.0.0.1，配合上面的端口映射才通。
+      - ./deploy/rocketmq/broker-dev.conf:/home/rocketmq/rocketmq-4.9.7/conf/broker.conf:ro
