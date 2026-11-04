@@ -39,8 +39,18 @@ public class AliOssUtil {
     @Value("${app.upload.local-dir:./uploads}")
     private String localDir;
 
-    /** 降级时 URL 的前缀（指向本服务对外地址；容器里用 APP_UPLOAD_PUBLIC_BASE_URL 覆盖） */
-    @Value("${app.upload.public-base-url:http://127.0.0.1:8080}")
+    /**
+     * 降级时 URL 的前缀。
+     *
+     * 留空（默认）= 返回根相对路径 /uploads/&lt;文件名&gt;，由浏览器按当前页面 origin 解析。
+     * 这是最稳的做法：同一份产物在 http/https、IP/域名、本机/线上都自动正确，
+     * 也不会出现「https 页面加载 http 图片」被当成混合内容拦截。
+     *
+     * ⚠️ 绝对不要填 http://127.0.0.1:8080 —— 浏览器里的 127.0.0.1 指用户自己的电脑，
+     *    部署到服务器后所有上传后的图片都会裂开（表现为「上传成功但页面渲染不出来」）。
+     * 只有把图片放到独立图床/CDN 时才填完整前缀。
+     */
+    @Value("${app.upload.public-base-url:}")
     private String publicBaseUrl;
 
     public String uploadFile(String objectName, InputStream in) throws Exception {
@@ -99,8 +109,22 @@ public class AliOssUtil {
         Files.createDirectories(dir);
         Files.copy(in, target, StandardCopyOption.REPLACE_EXISTING);
 
-        String url = publicBaseUrl + "/uploads/" + target.getFileName();
+        // 相对路径优先：前缀留空时返回 /uploads/xxx.jpg，由浏览器按页面 origin 解析。
+        // 这样 http/https、IP/域名、本机/线上都不需要改配置，也不会踩混合内容拦截。
+        String path = "/uploads/" + target.getFileName();
+        String url = StringUtils.hasText(publicBaseUrl)
+                ? trimTrailingSlash(publicBaseUrl) + path
+                : path;
         log.info("未配置 OSS 凭证，已降级保存到本地：{} → {}", target, url);
         return url;
+    }
+
+    /** 去掉末尾斜杠，避免 APP_UPLOAD_PUBLIC_BASE_URL 手写成 http://x.com/ 时拼出 //uploads */
+    private String trimTrailingSlash(String base) {
+        String trimmed = base.trim();
+        while (trimmed.endsWith("/")) {
+            trimmed = trimmed.substring(0, trimmed.length() - 1);
+        }
+        return trimmed;
     }
 }

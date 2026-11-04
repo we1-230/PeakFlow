@@ -76,13 +76,19 @@ mock-pay:
   secret-key: ${MOCK_PAY_SECRET:}
   # 支付渠道标识，会写入 pay_record.pay_channel
   channel: MOCK_PAY
-  # 收银台地址：发起支付时返回给前端，由前端跳转（指向 MockPay 的收银台）
-  cashier-url: ${MOCK_PAY_CASHIER_URL:http://127.0.0.1:8080/mock-pay/cashier}
-  # 商户异步回调地址：MockPay 收到付款后回调这里完成入账（真实场景是自己的公网 HTTPS 域名）
+  # 收银台地址：发起支付时**返回给浏览器**跳转，必须使用浏览器可访问的地址。
+  # ⚠️ 不能写 127.0.0.1 / localhost —— 浏览器里的 127.0.0.1 指用户自己的电脑，
+  #    部署到服务器后用户点「支付」会直接 ERR_CONNECTION_REFUSED（拒绝连接）。
+  # 默认用根相对路径 /api/mock-pay/cashier：浏览器按当前页面 origin 解析，
+  #   无论 http/https、IP/域名、本机/线上都能落到正确地址，无需任何环境改配置。
+  #   经 nginx 时 /api/ 整体反代到后端并剥掉前缀 → 后端 /mock-pay/cashier。
+  cashier-url: ${MOCK_PAY_CASHIER_URL:/api/mock-pay/cashier}
+  # 商户异步回调地址：服务器 → 服务器调用（MockPay 收到付款后回调这里完成入账）。
+  # 这一条**必须**是后端自己能访问到的绝对地址，容器内留 127.0.0.1:8080 即可。
   notify-url: ${MOCK_PAY_NOTIFY_URL:http://127.0.0.1:8080/pay/notify}
-  # 商户同步跳转地址：用户付款后浏览器跳回这里（仅展示，不改订单状态）
-  # 指向 Vue 商城前端，dev 默认 localhost:3000 的订单页
-  return-url: ${MOCK_PAY_RETURN_URL:http://localhost:3000/orders}
+  # 商户同步跳转地址：用户付款后浏览器跳回这里（仅展示，不改订单状态）。
+  # 同样是给浏览器用的，所以用根相对路径，跟随页面 origin 落到 Vue 商城的订单页。
+  return-url: ${MOCK_PAY_RETURN_URL:/orders}
   # 第三方退款接口地址（商户 → MockPay，发起退款时调用；对应真实世界的「支付宝退款接口」）
   refund-url: ${MOCK_PAY_REFUND_URL:http://127.0.0.1:8080/mock-pay/refund}
   # 商户侧退款结果回调地址（发起退款时作为参数传给第三方，由第三方回推退款最终结果）
@@ -210,8 +216,14 @@ app:
   upload:
     # 降级存储目录（相对启动目录，容器内是 /app/uploads）
     local-dir: ${APP_UPLOAD_LOCAL_DIR:./uploads}
-    # 降级时拼给前端的 URL 前缀，必须是浏览器能访问到的本服务地址
-    public-base-url: ${APP_UPLOAD_PUBLIC_BASE_URL:http://127.0.0.1:8080}
+    # 降级上传成功后拼给**浏览器**的 URL 前缀。
+    # 留空 = 返回根相对路径 /uploads/<文件名>，跟随当前页面 origin 解析 ——
+    #   这是默认且推荐的做法：http/https、IP/域名、本机/线上都自动正确，
+    #   也不会因为「页面是 https、图片是 http」被浏览器按混合内容拦掉。
+    # ⚠️ 千万别在这里填 http://127.0.0.1:8080 ——
+    #   浏览器里的 127.0.0.1 指用户自己的电脑，图片会全部裂开。
+    # 只有图片要放到独立图床/CDN 时，才填完整前缀，如 https://cdn.example.com
+    public-base-url: ${APP_UPLOAD_PUBLIC_BASE_URL:}
 
 # 线程池配置（可动态调整，无需改代码）
 threadpool:
