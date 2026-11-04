@@ -1,0 +1,142 @@
+# ============================================================================
+# 本地开发编排（只起依赖中间件，后端 / 前端跑在你本机）
+# ----------------------------------------------------------------------------
+# 启动：
+#   docker compose -f docker-compose.dev.yml up -d
+#
+# 停掉（保留数据）：
+#   docker compose -f docker-compose.dev.yml down
+#
+# 连数据一起删干净（慎用）：
+#   docker compose -f docker-compose.dev.yml down -v
+#
+# ----------------------------------------------------------------------------
+# 【为什么只起中间件，不起 backend / nginx】
+#
+#   本地开发的核心诉求是「改一行代码立刻看到效果」：
+#     · 后端要热重载  → 在 IDEA 里跑 PeakFlowApplication（spring-boot:run）
+#     · 前端要 HMR    → cd frontend && npm run dev（3000 端口，vite 代理到 8080）
+#   把后端塞进容器，每改一次都要重新 build 镜像，开发体验直接倒退。
+#
+#   所以容器只负责提供「在你本机装起来很麻烦」的三样东西：
+#     MySQL / Redis / RocketMQ
+#
+#   想验证「容器化之后还能不能跑」（即上线前的本地预演），用主文件：
+#     docker compose up -d --build
+#
+# ----------------------------------------------------------------------------
+# 【和主文件 docker-compose.yml 的差异，都是刻意的】
+#
+#   1. project name = peakflow-dev，容器名统一 pfdev- 前缀
+#      → 万一你在同一台机器上同时跑主栈，容器名/网络不会撞
+#   2. 数据卷统一 dev- 前缀
+#      → 你在主栈上执行 down -v 不会把你的开发数据一起删了
+#   3. 不设 restart 策略
+#      → 主文件是 unless-stopped（开机自启，适合服务器）；
+#        本地开发如果也设了，你 docker compose stop 之后重启电脑，
+#        中间件又自己爬起来了，白占 1G+ 内存还找不到原因
+#   4. 本文件**不映射任何宿主机端口**
+#      → 端口暴露交给叠加件 docker-compose.dev-ports.yml，见那个文件的说明
+# ============================================================================
+
+name: peakflow-dev
+
+networks:
+  peakflow-dev-net:
+    driver: bridge
+
+volumes:
+  dev-mysql-data:
+  dev-redis-data:
+  dev-namesrv-data:
+  dev-broker-data:
+
+services:
+
+  # --------------------------------------------------------------------------
+  # MySQL：和主文件同样的版本 / 字符集 / 初始化脚本，保证本地和线上库结构完全一致
+  # --------------------------------------------------------------------------
+  mysql:
+    image: mysql:8.0
+    container_name: pfdev-mysql
+    command:
+      - --character-set-server=utf8mb4
+      - --lower_case_table_names=1
+      # 本地开发额外开的：慢查询日志。阈值压到 0.5s，
+      # 方便你调分页 / 秒杀 SQL 时直接用 SHOW PROCESSLIST 或慢日志抓问题
+      - --slow_query_log=1
+      - --long_query_time=0.5
+    environment:
+      # .env 里的 DB_PASSWORD 是空的（模板副本），直接写 :? 会启动失败。
+      # 这里用 :- 给一个本地兜底值：本机开发库只绑 127.0.0.1，无安全性可言。
+      # ⚠️ 建议同时在 .env 里填上同一个值 —— 因为你在 IDEA 里跑后端时读的是 .env，
+      #    两边不一致会出现「容器里的库能连、后端报 Access denied」。
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-peakflow_dev_2026}
+      MYSQL_DATABASE: peakflow_dev
+      TZ: Asia/Shanghai
+    volumes:
+      - dev-mysql-data:/var/lib/mysql
+      # 首次启动自动建库建表灌种子数据（和线上同一批脚本，保证结构一致）
+      - ./deploy/mysql/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p${DB_PASSWORD:-peakflow_dev_2026}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks: [peakflow-dev-net]
+
+  # --------------------------------------------------------------------------
+  # Redis：本地不需要密码（.env 里 REDIS_PASSWORD 留空即可）
+  # --------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: pfdev-redis
+    command: redis-server --appendonly yes
+    environment:
+      TZ: Asia/Shanghai
+    volumes:
+      - dev-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 8
+    networks: [peakflow-dev-net]
+
+  # --------------------------------------------------------------------------
+  # RocketMQ NameServer
+  #   前端不碰它，但后端下单 / 订单超时关单要用，本地联调必须起
+  # --------------------------------------------------------------------------
+  namesrv:
+    image: apache/rocketmq:4.9.7
+    container_name: pfdev-namesrv
+    command: sh mqnamesrv
+    environment:
+      JAVA_OPT_EXT: "-Xms128m -Xmx128m -Xmn64m"
+    volumes:
+      - dev-namesrv-data:/root/logs
+    networks: [peakflow-dev-net]
+
+  # --------------------------------------------------------------------------
+  # RocketMQ Broker
+  #   注意 mqbroker 只认 -c / -n 两个参数，多传一个就打印 usage 直接退出。
+  #   镜像以 uid=3000(rocketmq) 运行，日志目录必须挂它有权写的路径。
+  #
+  #   broker.conf 放在叠加件里挂载（见 docker-compose.dev-ports.yml）：
+  #   因为 broker 要向 nameserver 注册「客户端该怎么连我」的地址，
+  #   默认注册的是容器内网 IP（172.x），你的 IDEA 在宿主机根本连不上。
+  #   叠加件里那份 broker-dev.conf 把它改成 127.0.0.1。
+  # --------------------------------------------------------------------------
+  broker:
+    image: apache/rocketmq:4.9.7
+    container_name: pfdev-broker
+    command: ["sh", "mqbroker", "-c", "/home/rocketmq/rocketmq-4.9.7/conf/broker.conf"]
+    environment:
+      NAMESRV_ADDR: "namesrv:9876"
+      JAVA_OPT_EXT: "-Xms256m -Xmx256m -Xmn96m"
+    volumes:
+      - dev-broker-data:/home/rocketmq/logs
+    depends_on:
+      - namesrv
+    networks: [peakflow-dev-net]
