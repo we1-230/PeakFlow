@@ -149,6 +149,12 @@ services:
     restart: unless-stopped
     ports:
       - "${NGINX_PORT:-80}:80"
+      - "${NGINX_HTTPS_PORT:-443}:443"
+    # 配置与证书用挂载而非烧进镜像：改完配置 docker compose restart nginx 即可生效，
+    # 不用重新 build 镜像。证书由 deploy/nginx/gen-cert.sh 生成，不进版本库。
+    volumes:
+      - ./frontend/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./deploy/nginx/certs:/etc/nginx/certs:ro
     environment:
       TZ: Asia/Shanghai
     depends_on:
