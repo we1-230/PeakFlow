@@ -363,6 +363,18 @@ cp .env.example .env
 > 或 Docker Compose 的 `env_file`。`.gitignore` 已就位：`.env`、`logs/`、`target/`、
 > `node_modules/`、`uploads/`（未配 OSS 时的本地降级上传目录）都已加入忽略。
 
+> ⚠️ **`.env` 里的连接地址是「宿主机视角」的**（`127.0.0.1:3307` / `127.0.0.1:6380` / `127.0.0.1:9876`），
+> 只对 IDE 直跑有意义。容器内 `127.0.0.1` 指向容器自身、端口也是容器内端口，直接用会连不上中间件，
+> 表现为 **backend 无限重启**且控制台只有 banner 没有报错（prod 的 logback 只挂 FILE appender）。
+> 因此 `docker-compose.yml` 用锚点 `x-backend-env` 统一覆盖成服务名：
+> `mysql:3306` / `redis:6379` / `namesrv:9876`。
+>
+> 排查命令：
+> ```bash
+> docker inspect peakflow-backend1 --format '{{range .Config.Env}}{{println .}}{{end}}' | grep -E 'DB_|REDIS_|ROCKETMQ_NAMESRV_ADDR'
+> tail -50 ./backend/logs/backend1/prod/sys-error.log
+> ```
+
 ### 6.4 启动后端
 
 ```bash
@@ -384,9 +396,13 @@ docker compose up -d --build backend1 backend2
 > 会被 Spring 宽松绑定成 `server.port`）。命令行参数优先级最高，可用
 > `java -jar ... --server.port=8080` 强制覆盖。
 >
-> ⚠️ 本机直跑需要先叠加 dev 覆盖文件把 3307/6380/9876 放出来，否则连不上中间件。
+> ⚠️ 本机直跑时，`mysql` / `redis` / `namesrv` 这些容器**没有对外发布端口**（只走 compose 内网），
+> 所以直跑进程要连的是 `.env` 里那套宿主机视角的地址。若想让直跑进程连容器里的中间件，
+> 需要临时给对应服务加 `ports:` 映射并保持 `.env` 端口一致。
+>
+> ⚠️ 容器形态下**不要**照搬 `.env` 的 `DB_HOST` / `REDIS_HOST`——它们已被 `x-backend-env` 锚点覆盖为服务名。
 
-启动成功后（默认形态下后端不发布端口，下面用「容器内」与「叠加 dev 后」两种方式验证）：
+启动成功后（容器内不发布后端端口，只能走「容器内自检」或「经 nginx 反代」两条路）：
 
 ```bash
 # 容器内自检（推荐，任何时候都可用）
@@ -397,7 +413,7 @@ docker compose exec backend2 curl -s localhost:8080/actuator/health
 curl -s http://localhost/api/category/list
 ```
 
-| 地址（叠加 dev 后） | 说明 |
+| 地址（需在 compose 里临时发布端口） | 说明 |
 |---|---|
 | http://localhost:8080/actuator/health | 健康检查（backend1） |
 | http://localhost:8081/actuator/health | 健康检查（backend2） |

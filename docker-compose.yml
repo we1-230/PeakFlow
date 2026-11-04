@@ -11,6 +11,18 @@ volumes:
   namesrv-data:
   broker-data:
 
+# ---- backend 容器内连接地址 ----
+# .env 里的 DB_HOST / DB_PORT / REDIS_HOST / REDIS_PORT 是「宿主机视角」的
+# （给 IDEA 本地开发用，127.0.0.1:3307 / 127.0.0.1:6380）。
+# 容器里 127.0.0.1 指向容器自身，端口也是容器内端口，必须改成服务名 + 容器内端口。
+# 用锚点统一覆盖，既不污染 .env，也不用在两个实例里各写一遍。
+x-backend-env: &backend-env
+  DB_HOST: mysql
+  DB_PORT: "3306"
+  REDIS_HOST: redis
+  REDIS_PORT: "6379"
+  ROCKETMQ_NAMESRV_ADDR: "namesrv:9876"
+
 services:
   mysql:
     image: mysql:8.0
@@ -87,6 +99,7 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
+      <<: *backend-env
       SNOWFLAKE_WORKER_ID: "1"
     volumes:
       - ./backend/logs/backend1:/app/logs
@@ -111,6 +124,7 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
+      <<: *backend-env
       SNOWFLAKE_WORKER_ID: "2"
     volumes:
       - ./backend/logs/backend2:/app/logs
