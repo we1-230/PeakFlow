@@ -61,18 +61,19 @@ services:
     networks: [peakflow-net]
 
   # RocketMQ Broker
+  # ---- RocketMQ Broker ----
+  # mqbroker 只认 -c / -n 两个参数，多传一个就打印 usage 直接退出。
+  # 镜像以 uid=3000(rocketmq) 运行，挂 /root/logs 会因无权限启动失败。
   broker:
     image: apache/rocketmq:4.9.7
     container_name: peakflow-broker
     restart: unless-stopped
-    command: >
-      sh mqbroker
-      -c /home/rocketmq/rocketmq-4.9.6/conf/broker.conf
-      --autoCreateTopicEnable true
+    command: ["sh", "mqbroker", "-c", "/home/rocketmq/rocketmq-4.9.7/conf/broker.conf"]
     environment:
       NAMESRV_ADDR: "namesrv:9876"
+      JAVA_OPT_EXT: "-Xms320m -Xmx320m -Xmn96m"
     volumes:
-      - broker-data:/root/logs
+      - broker-data:/home/rocketmq/logs
     depends_on:
       - namesrv
     networks: [peakflow-net]
